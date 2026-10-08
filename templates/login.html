@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}PTI AUTOMATIZADO — Entrar{% endblock %}
+{% block extra_head %}
+<style>
+  /* Landing de login — tela cheia, duas colunas */
+  .login-hero {
+    min-height: calc(100vh - 60px);
+    display: grid; grid-template-columns: 1.15fr 1fr;
+    max-width: 1160px; margin: 0 auto; padding: 2rem 1.5rem;
+    gap: 3rem; align-items: center;
+  }
+  @media (max-width: 900px) {
+    .login-hero { grid-template-columns: 1fr; gap: 2rem; padding-top: 2.5rem; }
+  }
+  /* Título maior que o hero padrão das páginas internas */
+  .login-hero .hero-title {
+    font-size: clamp(2rem, 4.2vw, 3.1rem);
+    line-height: 1.08; margin-bottom: 1rem;
+  }
+  .login-hero .hero-sub { font-size: 1.02rem; margin-bottom: 1.75rem; max-width: 46ch; }
+
+  .login-card {
+    background: var(--surf); border: 1px solid var(--bdr);
+    border-radius: 20px; box-shadow: var(--sh-lg);
+    padding: 2.25rem 2.25rem 2rem;
+    max-width: 420px; width: 100%; justify-self: end;
+  }
+  @media (max-width: 900px) { .login-card { justify-self: stretch; max-width: none; } }
+  .login-card h1 { font-size: 1.35rem; font-weight: 800; letter-spacing: -.03em; margin: 0 0 .3rem; }
+  .login-card .sub { font-size: .85rem; color: var(--sub); margin: 0 0 1.5rem; }
+</style>
+{% endblock %}
+{% block content %}
+{% set plain_bg = true %}
+<div class="login-hero">
+
+  <!-- Coluna institucional -->
+  <div>
+    <h1 class="hero-title">
+    Projetos de interconexão<br>
+    <span class="shimmer">com governança e controle.</span>
+    </h1>
+  </div>
+
+  <!-- Card de login -->
+  <div class="login-card">
+    <h1>Bem-vindo de volta</h1>
+    <br>
+    <form method="post" action="{{ url_for('auth.login_post') }}" novalidate id="loginForm">
+      <div style="margin-bottom:1rem">
+        <label class="v-label" for="email">E-mail</label>
+        <input class="v-input" type="email" id="email" name="email"
+               required autofocus autocomplete="email">
+      </div>
+
+      <div style="margin-bottom:1.5rem">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.3rem">
+          <label class="v-label" for="password" style="margin:0">Senha</label>
+          <button type="button" id="togglePwd" style="font-size:.75rem;color:var(--sub);background:none;border:none;cursor:pointer;padding:0">Mostrar</button>
+        </div>
+        <input class="v-input" type="password" id="password" name="password"
+               required autocomplete="current-password">
+        <p id="capsWarn" style="display:none;font-size:.72rem;color:#92400e;margin:.3rem 0 0">
+          <i class="bi bi-exclamation-triangle"></i> Caps Lock ativo
+        </p>
+      </div>
+
+      <button type="submit" class="btn-p btn-lg" id="btnLogin"
+              style="width:100%;justify-content:center">
+        <span class="spinner-border spinner-border-sm d-none me-1" id="spin"></span>
+        Entrar na plataforma
+      </button>
+    </form>
+
+    <div style="margin-top:1.4rem;padding-top:1.25rem;border-top:1px solid var(--bdr);text-align:center">
+      <a href="{{ url_for('auth.admin_login') }}" style="font-size:.78rem;color:var(--sub);text-decoration:none">
+        <i class="bi bi-shield-lock"></i> Acesso de administrador
+      </a>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+(function(){
+  const form  = document.getElementById('loginForm');
+  const email = document.getElementById('email');
+  const pwd   = document.getElementById('password');
+  const btn   = document.getElementById('btnLogin');
+  const spin  = document.getElementById('spin');
+  const toggle= document.getElementById('togglePwd');
+  const caps  = document.getElementById('capsWarn');
+
+  toggle.addEventListener('click',()=>{
+    const show = pwd.type==='password';
+    pwd.type = show?'text':'password';
+    toggle.textContent = show?'Ocultar':'Mostrar';
+    pwd.focus();
+  });
+
+  pwd.addEventListener('keydown', e=>{
+    try{ caps.style.display = e.getModifierState('CapsLock')?'block':'none'; }catch(_){}
+  });
+
+  form.addEventListener('submit',e=>{
+    if(!form.checkValidity()){ e.preventDefault(); return; }
+    btn.disabled=true; spin.classList.remove('d-none');
+  });
+
+  if(email.value) pwd.focus();
+})();
+</script>
+{% endblock %}

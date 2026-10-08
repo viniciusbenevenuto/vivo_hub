@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Central Atacado — PTI AUTOMATIZADO{% endblock %}
+{% block extra_head %}
+<style>
+  .action-card {
+    display:block; text-decoration:none; color:inherit;
+    padding:1.5rem; border-radius:16px; border:1px solid var(--bdr);
+    background:var(--surf); box-shadow:var(--sh); transition:box-shadow .2s, transform .15s, border-color .2s;
+  }
+  .action-card:hover { box-shadow:var(--sh-lg); transform:translateY(-3px); border-color:rgba(107,9,166,.25); text-decoration:none; color:inherit; }
+  .action-card-icon {
+    width:44px; height:44px; border-radius:12px;
+    background:var(--p-lt); color:var(--p);
+    display:flex; align-items:center; justify-content:center;
+    font-size:1.15rem; margin-bottom:1rem;
+  }
+  .action-card-icon.red { background:#fdf0f0; color:#991b1b; }
+  .action-card h3 { font-size:.95rem; font-weight:700; margin:0 0 .35rem; }
+  .action-card p  { font-size:.8rem; color:var(--sub); margin:0; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page">
+
+  <div class="page-hero">
+    <span class="hero-eyebrow"><i class="bi bi-diagram-3"></i> Atacado</span>
+    <h1 class="hero-title">Bem-vindo à sua <span class="shimmer">área de trabalho</span></h1>
+    <p class="hero-sub">Crie, acompanhe e envie seus Pré-PTIs para validação da Engenharia.</p>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem">
+
+    <a class="action-card" href="{{ url_for('atacado.form_new') }}">
+      <div class="action-card-icon"><i class="bi bi-file-earmark-plus"></i></div>
+      <h3>Criar Pré-PTI</h3>
+      <p>Criar formulário de interligação</p>
+    </a>
+
+    <a class="action-card" href="{{ url_for('atacado.form_list') }}">
+      <div class="action-card-icon"><i class="bi bi-list-task"></i></div>
+      <h3>Meus Pré-PTIs</h3>
+      <p>Consultar, editar e acompanhar</p>
+    </a>
+
+    <a class="action-card" href="{{ url_for('atacado.form_list') }}?status=aprovado">
+      <div class="action-card-icon"><i class="bi bi-check2-circle"></i></div>
+      <h3>Pré-PTIs Aprovados</h3>
+      <p>Validados pela Engenharia</p>
+    </a>
+
+    <a class="action-card" href="{{ url_for('atacado.form_list') }}?status=reprovado">
+      <div class="action-card-icon red"><i class="bi bi-x-circle"></i></div>
+      <h3>Pré-PTIs Reprovados</h3>
+      <p>Reprovados pela Engenharia</p>
+    </a>
+
+    <div class="action-card" style="cursor:default">
+      <div class="action-card-icon"><i class="bi bi-search"></i></div>
+      <h3>Pesquisar Pré-PTIs</h3>
+      <form method="get" action="{{ url_for('atacado.form_list') }}" style="margin-top:.5rem;display:flex;gap:.4rem">
+        <input class="v-input v-input-sm" type="text" name="q"
+               placeholder="Nome da operadora..." style="flex:1;min-width:0">
+        <button type="submit" class="btn-p btn-sm"><i class="bi bi-arrow-right"></i></button>
+      </form>
+    </div>
+
+  </div>
+
+</div>
+{% endblock %}
+{% block extra_scripts %}{% endblock %}

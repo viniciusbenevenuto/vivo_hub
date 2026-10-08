@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}VIVOHUB — Admin{% endblock %}
+{% block content %}
+<div class="page-sm" style="padding-top:4rem">
+  <div class="card" style="padding:2.25rem 2.25rem 2rem;border-radius:20px;box-shadow:var(--sh-lg)">
+
+    <div style="margin-bottom:1.5rem">
+      <span class="hero-eyebrow"><i class="bi bi-shield-lock"></i> Administrador</span>
+      <h1 style="font-size:1.4rem;font-weight:800;letter-spacing:-.03em;margin:.6rem 0 0">Código de acesso</h1>
+    </div>
+
+    <form method="post" action="{{ url_for('auth.admin_login_post') }}" novalidate id="adminForm">
+      <div style="margin-bottom:1.5rem">
+        <label class="v-label" for="code">Código</label>
+        <div style="display:flex;gap:.4rem">
+          <input class="v-input" type="password" id="code" name="code"
+                 placeholder="Digite o código" required autofocus>
+          <button type="button" id="toggleCode"
+                  class="btn-g" style="flex-shrink:0;padding:.5rem .75rem;border-radius:8px">
+            <i class="bi bi-eye" id="eyeIcon"></i>
+          </button>
+        </div>
+      </div>
+
+      <button type="submit" class="btn-p" id="btnAdmin"
+              style="width:100%;justify-content:center;padding:.65rem">
+        <span class="spinner-border spinner-border-sm d-none me-1" id="spin"></span>
+        Entrar
+      </button>
+    </form>
+
+    <div style="margin-top:1.25rem;padding-top:1.25rem;border-top:1px solid var(--bdr);text-align:center">
+      <a href="{{ url_for('auth.login') }}" style="font-size:.78rem;color:var(--sub);text-decoration:none">
+        ← Voltar ao login
+      </a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+(function(){
+  const form   = document.getElementById('adminForm');
+  const code   = document.getElementById('code');
+  const btn    = document.getElementById('btnAdmin');
+  const spin   = document.getElementById('spin');
+  const toggle = document.getElementById('toggleCode');
+  const eye    = document.getElementById('eyeIcon');
+
+  toggle.addEventListener('click',()=>{
+    const show = code.type==='password';
+    code.type = show?'text':'password';
+    eye.className = show?'bi bi-eye-slash':'bi bi-eye';
+    code.focus();
+  });
+
+  form.addEventListener('submit',e=>{
+    if(!form.checkValidity()){ e.preventDefault(); return; }
+    btn.disabled=true; spin.classList.remove('d-none');
+  });
+})();
+</script>
+{% endblock %}

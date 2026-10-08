@@ -1,0 +1,25 @@
+PLANILHA DE MEDIÇÕES DOS SBCs
+=============================
+
+Coloque nesta pasta a planilha (.xlsx) com as medições de CAPS dos SBCs.
+O sistema usa sempre o arquivo .xlsx MAIS RECENTE desta pasta e o relê
+automaticamente a cada 5 minutos — basta substituir/adicionar o arquivo.
+
+Ela alimenta o campo "SBC VIVO" (tabela Dados VIVO, perfil Engenharia),
+que mostra cada SBC como Disponível / Moderado / Crítico e indica o
+recomendado para o CN/UF da interconexão.
+
+Formato esperado — primeira linha com os cabeçalhos:
+
+  SEMANA | DIA | CIDADE | UF | REGIONAL | SBC | CAPS | STATUS |
+  MOD/FORNEC | SERVIÇO | RESPONSÁVEL | PRAZO
+
+  - Cada linha = uma medição de um SBC (o mesmo SBC pode aparecer várias vezes).
+  - UF com 2 letras (SP, RJ...). Linhas sem SBC ou sem UF são ignoradas.
+  - CAPS numérico.
+  - STATUS: Normal / Atenção / Crítico  (define a saúde do SBC).
+
+Se a UF não tiver SBC medido, o sistema sugere SBCs de UFs vizinhas e,
+depois, da mesma regional — e avisa quando isso acontecer.
+
+Pasta configurável pela variável de ambiente SBC_DATA_DIR.

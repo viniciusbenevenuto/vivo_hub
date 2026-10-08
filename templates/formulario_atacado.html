@@ -1,0 +1,2404 @@
+{% extends "base.html" %}
+{% set engineer_mode = (session.get('role') == 'engenharia') %}
+{% set is_edit = form is not none %}
+{% set st = ((form.status if form else 'rascunho') or 'rascunho')|lower %}
+{% block title %}{{ 'Validar PTI' if engineer_mode else 'Pré-PTI' }} — PTI AUTOMATIZADO{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* ── Layout ── */
+  body.plain { background:var(--bg); }
+  .form-nav {
+    position:sticky; top:60px; z-index:90;
+    background:rgba(255,255,255,.85); backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--bdr);
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 1.5rem; height:48px; gap:1rem;
+  }
+  .form-main { max-width:1160px; margin:0 auto; padding:1.5rem 1.5rem 6.5rem; }
+
+  /* ── Seções ── */
+  .sec {
+    background:var(--surf); border:1px solid var(--bdr);
+    border-radius:var(--r); margin-bottom:1.1rem; overflow:hidden;
+    box-shadow:var(--sh);
+  }
+  /* Cabeçalho limpo: número + título + uma linha dizendo o que preencher */
+  .sec-header {
+    display:flex; align-items:flex-start; justify-content:space-between; gap:1rem;
+    padding:1.1rem 1.35rem .25rem;
+  }
+  .sec-title {
+    display:flex; align-items:center; gap:.6rem;
+    font-size:.95rem; font-weight:700; letter-spacing:-.2px; margin:0;
+  }
+  .sec-num {
+    width:24px; height:24px; border-radius:50%; flex-shrink:0;
+    background:var(--p-lt); color:var(--p); font-size:.74rem; font-weight:800;
+    display:inline-flex; align-items:center; justify-content:center;
+  }
+  .sec-desc { font-size:.78rem; color:var(--sub); margin:.2rem 0 0 calc(24px + .6rem); }
+  .sec-body  { padding:1rem 1.35rem 1.35rem; }
+  .sec-actions { display:flex; align-items:center; gap:.6rem; flex-shrink:0; }
+
+  /* ── Campos ── */
+  .field-grid { display:grid; gap:1rem 1.25rem; }
+  .col2 { grid-template-columns:1fr 1fr; }
+  .col3 { grid-template-columns:repeat(3, minmax(0,1fr)); }
+  .col-id { grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr); }
+  @media(max-width:640px){ .col2, .col3, .col-id { grid-template-columns:1fr; } }
+  /* Valor fixo (definido pelo sistema): texto simples, não um campo cinza */
+  .ro-value { font-size:.875rem; font-weight:500; padding:.55rem 0 0; color:var(--ink); }
+  .ro-value .muted { color:var(--sub); font-weight:400; }
+  .v-label { font-size:.78rem; font-weight:600; display:block; margin-bottom:.3rem; color:var(--ink); }
+  .req::after { content:" *"; color:var(--err); }
+  .form-check-input:checked { background-color:var(--p); border-color:var(--p); }
+
+  /* ── Combobox (opções restritas ao Anexo 5) ── */
+  .cbx { position:relative; }
+  .cbx-list {
+    position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:60;
+    background:var(--surf); border:1px solid var(--bdr); border-radius:10px;
+    box-shadow:var(--sh-lg); max-height:240px; overflow-y:auto; display:none;
+  }
+  .cbx-list.open { display:block; }
+  .cbx-item { padding:.45rem .75rem; font-size:.82rem; cursor:pointer; display:flex; gap:.5rem; align-items:baseline; }
+  .cbx-item:hover, .cbx-item.hi { background:var(--p-lt); }
+  .cbx-item small { color:var(--sub); font-size:.72rem; }
+  .cbx-more { padding:.4rem .75rem; font-size:.72rem; color:var(--sub); border-top:1px solid var(--bdr); }
+  .v-input.invalid { border-color:var(--err); box-shadow:0 0 0 3px rgba(220,38,38,.08); }
+
+  /* Dropdown de sugestões flutuante (EOT) — mesmo visual do combobox,
+     mas em posição fixa para não ser cortado pela rolagem da tabela. */
+  .cbx-float { position:fixed; left:0; right:auto; z-index:200; }
+  .cbx-float .cbx-item { padding:.35rem .6rem; font-size:.78rem; }
+
+  /* ── Multisseleção (tipos de tráfego) ── */
+  .ms { position:relative; max-width:460px; }
+  .ms-control {
+    display:flex; flex-wrap:wrap; align-items:center; gap:.3rem;
+    min-height:34px; padding:.25rem .5rem; cursor:pointer;
+    border:1px solid var(--bdr); border-radius:8px; background:var(--surf);
+    transition:border-color .15s, box-shadow .15s;
+  }
+  .ms.open .ms-control, .ms-control:focus-visible {
+    border-color:var(--p); box-shadow:0 0 0 3px rgba(107,9,166,.1); outline:none;
+  }
+  .ms-placeholder { font-size:.8rem; color:var(--sub); }
+  .ms-caret { margin-left:auto; color:var(--sub); font-size:.65rem; flex-shrink:0; }
+  .ms-tag {
+    display:inline-flex; align-items:center; gap:.25rem;
+    background:var(--p-lt); color:var(--p); border:1px solid rgba(107,9,166,.2);
+    border-radius:999px; padding:.1rem .25rem .1rem .5rem;
+    font-size:.7rem; font-weight:600; max-width:100%;
+  }
+  .ms-tag span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ms-tag button {
+    border:none; background:none; cursor:pointer; color:var(--p);
+    font-size:.8rem; line-height:1; padding:0 .15rem; opacity:.6;
+  }
+  .ms-tag button:hover { opacity:1; }
+  /* Painel em posição fixa: o cartão da seção usa overflow:hidden e
+     cortaria um dropdown absoluto. */
+  .ms-panel {
+    position:fixed; z-index:300;
+    background:var(--surf); border:1px solid var(--bdr); border-radius:12px;
+    box-shadow:var(--sh-lg); display:none; overflow:hidden;
+  }
+  .ms.open .ms-panel { display:block; }
+  .ms-options { max-height:min(60vh, 420px); overflow-y:auto; padding:.3rem; }
+  .ms-opt {
+    display:flex; align-items:flex-start; gap:.5rem; cursor:pointer;
+    padding:.3rem .5rem; border-radius:7px; font-size:.8rem; line-height:1.25;
+  }
+  .ms-opt:hover { background:var(--p-lt); }
+  .ms-opt input { margin-top:.15rem; accent-color:var(--p); flex-shrink:0; }
+  .ms-opt small {
+    display:block; color:var(--sub); font-size:.67rem; line-height:1.2;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .ms-foot {
+    display:flex; justify-content:space-between; align-items:center;
+    padding:.4rem .6rem; border-top:1px solid var(--bdr);
+    font-size:.72rem; color:var(--sub);
+  }
+  .ms-foot button {
+    border:none; background:none; color:var(--p); font-weight:600;
+    font-size:.72rem; cursor:pointer; padding:.15rem .3rem;
+  }
+
+  /* ── Retorno da operadora (importação do PTI respondido) ── */
+  .op-import {
+    border:1px solid var(--bdr); border-radius:12px; padding:.9rem 1rem;
+    background:linear-gradient(180deg,#fbfaff,#f7f5fc); margin-bottom:1.15rem;
+  }
+  .op-import-head { display:flex; align-items:flex-start; gap:.7rem; }
+  .op-import-head > i { color:var(--p); font-size:1.15rem; margin-top:.1rem; }
+  .op-import-head strong { font-size:.85rem; }
+  .op-import-head p { margin:.15rem 0 0; font-size:.75rem; color:var(--sub); }
+  .op-import-head .badge-s { margin-left:auto; flex-shrink:0; }
+  .op-import-actions {
+    display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-top:.75rem;
+  }
+  .op-import-file { font-size:.75rem; color:var(--sub); }
+  .op-import-meta { font-size:.72rem; color:var(--sub); margin:.6rem 0 0; }
+  .op-import-details { margin-top:.6rem; }
+  .op-import-details summary {
+    font-size:.75rem; color:var(--p); cursor:pointer; font-weight:600;
+  }
+  .op-import-list { max-height:260px; overflow:auto; margin-top:.5rem; }
+  .op-import-list table { width:100%; border-collapse:collapse; font-size:.72rem; }
+  .op-import-list th {
+    text-align:left; padding:.3rem .5rem; background:#faf9fd;
+    border-bottom:1px solid var(--bdr); color:var(--sub); font-weight:600;
+    position:sticky; top:0;
+  }
+  .op-import-list td { padding:.28rem .5rem; border-bottom:1px solid var(--bdr); }
+  .op-sim   { color:#15803d; font-weight:700; white-space:nowrap; }
+  .op-nao   { color:#b91c1c; font-weight:700; white-space:nowrap; }
+  .op-vazio { color:var(--sub); white-space:nowrap; }
+
+  /* ── Tabela de Parâmetros de Programação (respostas da operadora) ── */
+  .params-wrap { max-height:520px; overflow:auto; border:1px solid var(--bdr); border-radius:10px; }
+  .params-table { width:100%; border-collapse:collapse; font-size:.76rem; }
+  .params-table thead th {
+    position:sticky; top:0; z-index:2;
+    background:#faf9fd; border-bottom:1px solid var(--bdr);
+    padding:.45rem .6rem; text-align:left; font-weight:600;
+    font-size:.68rem; color:var(--sub);
+  }
+  .params-table td { padding:.4rem .6rem; border-bottom:1px solid var(--bdr); vertical-align:top; }
+  .params-table tr.params-secao td {
+    background:var(--p-lt); color:var(--p); font-weight:700;
+    font-size:.72rem; text-transform:uppercase; letter-spacing:.04em;
+    position:sticky; top:29px; z-index:1;
+  }
+  .params-obs { display:block; color:var(--sub); font-size:.68rem; margin-top:.1rem; }
+  .params-valor, .params-grau { color:var(--sub); }
+  .params-resp { font-weight:600; }
+  .params-cumpre { text-align:center; }
+
+  /* ── Dimensionamento por tráfego (Banda / Canais / CAPS) ── */
+  .dim-table { width:100%; border-collapse:collapse; font-size:.78rem; }
+  .dim-table th {
+    padding:.35rem .5rem; background:#faf9fd; border:1px solid var(--bdr);
+    font-weight:600; font-size:.68rem; color:var(--sub); text-align:center;
+    white-space:nowrap;
+  }
+  .dim-table td { padding:.25rem .4rem; border:1px solid var(--bdr); }
+  .dim-input {
+    width:72px; padding:.25rem .4rem; border:1px solid var(--bdr);
+    border-radius:6px; font-size:.75rem; outline:none; text-align:center;
+    background:var(--surf) !important; pointer-events:auto !important;
+  }
+  .dim-input:focus { border-color:var(--p); box-shadow:0 0 0 2px rgba(107,9,166,.08); }
+
+  /* ── Escopo ── */
+  .esc-top { display:grid; grid-template-columns:minmax(0,1fr) 150px; gap:1rem 1.25rem; align-items:start; }
+  .esc-top .ms { max-width:none; }
+  @media(max-width:640px){ .esc-top { grid-template-columns:1fr; } }
+  .esc-checks { margin-top:1.1rem; }
+  /* Lista de marcações em colunas (lida de cima para baixo) */
+  .check-grid {
+    display:grid; grid-template-columns:repeat(3, minmax(0,1fr));
+    grid-auto-flow:column; grid-template-rows:repeat(3, auto); gap:.2rem 1.25rem;
+  }
+  @media(max-width:640px){ .check-grid { grid-template-columns:1fr; grid-auto-flow:row; grid-template-rows:none; } }
+  /* Grupos antigos do Escopo — substituídos pela lista única acima */
+  .esc-group { margin-top:1.1rem; padding-top:.9rem; border-top:1px dashed var(--bdr); }
+  .esc-group-title { font-size:.75rem; font-weight:700; margin:0 0 .55rem; color:var(--ink); }
+  .chips-row { display:flex; flex-wrap:wrap; gap:.2rem 1.5rem; }
+  .esc-net { display:flex; flex-wrap:wrap; gap:1rem 1.5rem; align-items:flex-start; }
+
+  /* ── Pendências ao finalizar/salvar ── */
+  .val-box {
+    position:fixed; right:1.5rem; bottom:76px; z-index:95;
+    width:min(360px, calc(100vw - 2rem));
+    background:var(--surf); border:1px solid #fecaca; border-radius:12px;
+    box-shadow:var(--sh-lg); padding:.85rem .95rem; font-size:.8rem;
+  }
+  .val-head { display:flex; align-items:center; gap:.45rem; color:#991b1b; font-weight:700; }
+  .val-head button { margin-left:auto; border:none; background:none; color:var(--sub); cursor:pointer; font-size:.8rem; }
+  .val-box ul { list-style:none; margin:.5rem 0 0; padding:0; max-height:240px; overflow:auto; }
+  .val-box li.val-sec { font-size:.68rem; font-weight:700; color:var(--sub); text-transform:uppercase; letter-spacing:.04em; margin-top:.4rem; }
+  .val-box li button {
+    border:none; background:none; padding:.15rem 0; cursor:pointer; text-align:left;
+    font-size:.8rem; color:var(--ink);
+  }
+  .val-box li button::before { content:"•"; color:var(--err); margin-right:.4rem; }
+  .val-box li button:hover { color:var(--p); text-decoration:underline; }
+  .is-missing { border-color:var(--err) !important; box-shadow:0 0 0 3px rgba(220,38,38,.1) !important; }
+
+  /* Multisseleção em modo somente leitura (Engenharia) */
+  .ro .ms-control { pointer-events:none; background:#f9fafb; }
+  .ro .ms-caret, .ro .ms-tag button { display:none; }
+
+  /* ── Seletor de SBC VIVO por capacidade ── */
+  .sbc-th-hint { font-weight:400; color:var(--sub); font-size:.62rem; }
+  .sbc-cell { display:flex; align-items:center; gap:.35rem; min-width:150px; }
+  .sbc-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; background:#d4d0dc; }
+  .sbc-dot.disponivel { background:#16a34a; }
+  .sbc-dot.moderado   { background:#f59e0b; }
+  .sbc-dot.critico    { background:#dc2626; }
+  .sbc-panel {
+    position:fixed; z-index:300; width:380px; max-width:calc(100vw - 24px);
+    background:var(--surf); border:1px solid var(--bdr); border-radius:12px;
+    box-shadow:var(--sh-lg); overflow:hidden; font-size:.78rem;
+  }
+  .sbc-head { padding:.55rem .75rem; border-bottom:1px solid var(--bdr); background:#faf9fd; }
+  .sbc-head strong { font-size:.78rem; }
+  .sbc-head small { display:block; color:var(--sub); font-size:.68rem; margin-top:.1rem; }
+  .sbc-list { max-height:320px; overflow-y:auto; padding:.3rem; }
+  .sbc-opt {
+    display:grid; grid-template-columns:12px 1fr auto; gap:.15rem .5rem; align-items:center;
+    padding:.45rem .55rem; border-radius:8px; cursor:pointer;
+  }
+  .sbc-opt:hover { background:var(--p-lt); }
+  .sbc-opt .sbc-nome { font-weight:700; }
+  .sbc-opt .sbc-meta { grid-column:2 / 4; color:var(--sub); font-size:.68rem; }
+  .sbc-opt.critico .sbc-nome { color:#991b1b; }
+  .sbc-badge { font-size:.62rem; font-weight:700; padding:.08rem .4rem; border-radius:999px; white-space:nowrap; }
+  .sbc-badge.disponivel { background:#eafaf1; color:#15803d; }
+  .sbc-badge.moderado   { background:#fff8e6; color:#92400e; }
+  .sbc-badge.critico    { background:#fdf0f0; color:#b91c1c; }
+  .sbc-badge.rec        { background:var(--p); color:#fff; }
+  .sbc-sep { padding:.35rem .6rem .2rem; font-size:.64rem; font-weight:700; color:#b91c1c;
+             text-transform:uppercase; letter-spacing:.05em; }
+  .sbc-empty { padding:.9rem .75rem; color:var(--sub); text-align:center; line-height:1.45; }
+
+  /* ── Tabelas de dados ── */
+  .data-sec { overflow-x:auto; }
+  .data-sec table { width:100%; border-collapse:collapse; font-size:.78rem; }
+  .data-sec thead th {
+    padding:.45rem .5rem; background:#faf9fd;
+    border-bottom:1px solid var(--bdr); font-weight:600;
+    font-size:.7rem; color:var(--sub); white-space:nowrap; text-align:left;
+  }
+  .data-sec tbody td { padding:.35rem .4rem; border-bottom:1px solid var(--bdr); }
+  .data-sec tbody tr:last-child td { border-bottom:none; }
+  .data-sec input, .data-sec select {
+    width:100%; padding:.3rem .45rem; border:1px solid var(--bdr);
+    border-radius:6px; font-size:.75rem; outline:none; background:var(--surf);
+  }
+  .data-sec input:focus, .data-sec select:focus { border-color:var(--p); box-shadow:0 0 0 2px rgba(107,9,166,.08); }
+  /* EOT: input com seta de dropdown, visual alinhado aos seletores da tabela */
+  .data-sec input.has-caret {
+    appearance:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath fill='%236f6a7a' d='M5 7L0 2h10z'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right .45rem center; padding-right:1.3rem;
+  }
+  .cap-badge { font-size:.72rem; color:var(--sub); }
+  .del-btn {
+    background:none; border:1px solid var(--bdr); border-radius:6px;
+    padding:.25rem .45rem; cursor:pointer; color:var(--sub); font-size:.7rem;
+  }
+  .del-btn:hover { border-color:#fecaca; color:#dc2626; background:#fef2f2; }
+  .del-btn:disabled { opacity:.35; cursor:not-allowed; pointer-events:none; }
+  .idop-col { display:none; }   /* ID Operadora oculto em ambos os perfis */
+  {% if not engineer_mode %}.mask-col { display:none; }{% endif %}
+
+  /* Colunas ocultadas (ID VIVO, Lat, Long) — código preservado */
+  .hide-col { display:none !important; }
+  /* Faixa IP: visível apenas com "IP reservado" marcado */
+  #tableOperadora.fx-off .fx-col { display:none; }
+
+  /* Campos com limite de dígitos ficam compactos */
+  .data-sec input[maxlength="2"] { width:64px; }
+  .data-sec input[maxlength="3"] { width:74px; }
+  .data-sec select[data-field="uf"] { width:78px; }
+  .data-sec select[data-eot] { min-width:88px; width:auto; }
+  .data-sec select[data-field="cn"] { min-width:110px; max-width:150px; width:auto; }
+  .data-sec select[data-field="cidade"] { min-width:120px; }
+  /* Larguras mínimas legíveis nas tabelas (antes alguns campos encolhiam) */
+  #tableVivo input[data-field="data"]       { min-width:84px; }
+  #tableVivo input[data-field="escopo"],
+  #tableVivo input[data-field="localidade"],
+  #tableOperadora td:nth-child(2) input     { min-width:100px; }
+  .data-sec input[data-field="endereco_link"] { min-width:115px; }
+  #tableOperadora td:nth-child(6) input     { min-width:80px; }   /* SBC (automático) */
+  #tableOperadora .eng-mask                 { min-width:56px; }
+  .ref-label { font-size:.75rem; color:var(--sub); font-weight:600; white-space:nowrap; }
+  .w-compact { max-width:170px; }
+
+  /* ── Action bar ── */
+  .action-bar {
+    position:fixed; bottom:0; left:0; right:0; z-index:90;
+    background:rgba(255,255,255,.92); backdrop-filter:blur(8px);
+    border-top:1px solid var(--bdr);
+    display:flex; align-items:center; justify-content:flex-end;
+    gap:.5rem; padding:.75rem 1.5rem;
+    box-shadow:0 -4px 20px rgba(17,19,24,.05);
+  }
+
+  /* ── Painel Siprouter ── */
+  #sipPanel table td, #sipPanel table th { white-space:nowrap; }
+
+  /* ── Eng grid ── */
+  .eng-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:.75rem; }
+  @media(max-width:900px){ .eng-grid { grid-template-columns:1fr 1fr; } }
+  @media(max-width:560px){ .eng-grid { grid-template-columns:1fr; } }
+  .eng-card { border:1px solid var(--bdr); border-radius:10px; overflow:hidden; }
+  .eng-card-title {
+    font-size:.75rem; font-weight:700; padding:.45rem .65rem;
+    background:var(--p); color:#fff; display:flex; align-items:center; min-height:38px;
+  }
+  .eng-card-body { padding:.5rem .6rem; }
+  .eng-row { display:grid; grid-template-columns:24px 1fr; gap:.2rem .5rem; margin-bottom:.3rem; align-items:start; }
+  .eng-row input[type="checkbox"] { margin-top:.25rem; width:13px; height:13px; accent-color:var(--p); }
+  .eng-row p { margin:0; font-size:.72rem; line-height:1.35; }
+  .eng-card.invalid { border-color:#dc2626; }
+  .eng-card.invalid .eng-card-title { background:#dc2626; }
+
+  /* ── Readonly overlay (seções bloqueadas para Engenharia) ── */
+  .ro input:not([type="hidden"]):not([type="checkbox"]),
+  .ro select, .ro textarea { background:#f9fafb !important; pointer-events:none; }
+  /* Checkboxes do Atacado também ficam travados na visão da Engenharia */
+  .ro input[type="checkbox"] { pointer-events:none; }
+  .ro .chip-label, .ro label { pointer-events:none; }
+  #tableVivo input, #tableVivo select, #tableVivo textarea,
+  .eng-mask,
+  #eng-section input[type="checkbox"],
+  #eng-section label,
+  #eng_notes {
+    background: var(--surf) !important;
+    pointer-events: auto !important;
+    cursor: text;
+  }
+  #eng-section input[type="checkbox"] { cursor: pointer; }
+  .eng-mask.mask-empty { background:#ede9fe !important; }
+
+  /* Marcações (checkbox + texto) — sem moldura, para a tela ficar limpa.
+     Visual antigo de "pílula" preservado abaixo, comentado.
+  .chip-label {
+    display:flex; align-items:center; gap:.4rem; font-size:.8rem; cursor:pointer;
+    padding:.3rem .7rem; border:1px solid var(--bdr); border-radius:999px;
+    transition:all .15s; user-select:none;
+  }
+  .chip-label.on { border-color:var(--p); background:var(--p-lt); color:var(--p); }
+  */
+  .chip-label {
+    display:flex; align-items:center; gap:.55rem; font-size:.84rem; cursor:pointer;
+    padding:.3rem 0; user-select:none; color:var(--ink); width:fit-content;
+  }
+  .chip-label .form-check-input { width:1.05em; height:1.05em; margin:0; flex-shrink:0; cursor:pointer; }
+  .chip-label.on { font-weight:600; }
+
+  @media (prefers-reduced-motion:reduce){ * { transition:none !important; } }
+  /* Permite que os dropdowns ultrapassem o limite da seção */
+.sec {
+  overflow: visible;
+}
+
+/* Mantém a seção do combobox acima das seções seguintes */
+.sec:has(.cbx-list.open) {
+  position: relative;
+  z-index: 200;
+}
+
+/* Garante que o combobox e sua lista fiquem na frente */
+.cbx:focus-within {
+  z-index: 210;
+}
+
+.cbx-list {
+  z-index: 220;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+{% set plain_bg = true %}
+{# Numeração das seções: sequencial em cada perfil (a Engenharia tem
+   a seção extra Dados VIVO). #}
+{% set ns = namespace(n=0) %}
+
+{# Cabeçalho padrão de seção: número, título e uma linha dizendo o que fazer #}
+{% macro sec_head(n, title, desc='') %}
+  <div>
+    <h2 class="sec-title"><span class="sec-num">{{ n }}</span>{{ title }}</h2>
+    {% if desc %}<p class="sec-desc">{{ desc }}</p>{% endif %}
+  </div>
+{% endmacro %}
+
+<!-- Datalist de CNs — desativado: o campo CN passou a ser um seletor por UF.
+<datalist id="cnList">
+  {% for cn in CN_FULL %}
+    <option value="{{ cn.codigo }}"></option>
+  {% endfor %}
+</datalist>
+-->{# CN via seletor dependente da UF #}
+
+{# EOT: campos livres (3 alfanuméricos) com dropdown de sugestões estilizado
+   (attachSuggestions no JS), sem datalist nativo. #}
+
+<!-- Nav do formulário -->
+<div class="form-nav">
+  <div style="display:flex;align-items:center;gap:.75rem">
+    <span style="font-size:.82rem;font-weight:600">Pré-PTI</span>
+    {% if engineer_mode %}
+      <span style="font-size:.72rem;padding:.15rem .45rem;border-radius:5px;background:var(--p);color:#fff;font-weight:700">Engenharia</span>
+    {% endif %}
+    {% if is_edit %}
+      <span class="badge-s {% if st=='aprovado' %}done{% elif st=='em revisão' %}review{% elif st=='enviado' %}sent{% else %}draft{% endif %}">{{ st|capitalize }}</span>
+      <span style="font-size:.72rem;color:var(--sub)">#{{ form.id }}</span>
+    {% endif %}
+  </div>
+</div>
+
+<div class="form-main">
+  <form
+    id="formTecnico" method="post"
+    action="{% if form and not engineer_mode %}{{ url_for('atacado.form_update', form_id=form.id) }}{% elif form and engineer_mode %}{{ url_for('engenharia.form_view', form_id=form.id) }}{% else %}{{ url_for('atacado.form_create') }}{% endif %}"
+    novalidate
+    data-form-id="{{ form.id if form else 'new' }}"
+    data-vivo-json="{{ form.dados_vivo_json if form else '[]' }}"
+    data-operadora-json="{{ form.dados_operadora_json if form else '[]' }}"
+    data-engenharia-json="{{ form.engenharia_params_json if form else '{}' }}"
+    data-escopo-flags="{{ (form.escopo_flags_json if form and form.escopo_flags_json else '[]') }}"
+    class="{{ 'ro' if engineer_mode else '' }}"
+  >
+    <input type="hidden" id="dados_vivo_json"       name="dados_vivo_json"       value="{{ form.dados_vivo_json if form and form.dados_vivo_json else '[]' }}">
+    <input type="hidden" id="dados_operadora_json"  name="dados_operadora_json"  value="{{ form.dados_operadora_json if form and form.dados_operadora_json else '[]' }}">
+    <input type="hidden" id="engenharia_params_json" name="engenharia_params_json" value="{{ form.engenharia_params_json if form and form.engenharia_params_json else '{}' }}">
+    {% if engineer_mode %}
+    <input type="hidden" id="trafego_metricas_json" name="trafego_metricas_json"
+           value="{{ form.trafego_metricas_json if form and form.trafego_metricas_json else '{}' }}">
+    {% endif %}
+    {% if not engineer_mode %}
+      <input type="hidden" id="status"            name="status"            value="{{ (form.status if form else '') or 'rascunho' }}">
+      <input type="hidden" id="escopo_flags_json" name="escopo_flags_json" value="{{ form.escopo_flags_json if form and form.escopo_flags_json else '[]' }}">
+    {% endif %}
+
+    {% if is_edit %}
+    <p style="font-size:.72rem;color:var(--sub);margin:0 0 1rem;text-align:right">
+      Atualizado: {{ (form.updated_at or form.created_at or '')|date_br }}
+    </p>
+    {% endif %}
+
+    <!-- 1 | Identificação -->
+    <div class="sec">
+      <div class="sec-header">{% set ns.n = ns.n + 1 %}{{ sec_head(ns.n, 'Identificação da Operadora', 'Busque pelo nome ou pelo RN1 — um completa o outro.') }}</div>
+      <div class="sec-body">
+        <div class="field-grid col-id">
+          <div class="cbx">
+            <label class="v-label req" for="nome_operadora">Nome da Operadora</label>
+            <input class="v-input" type="text" id="nome_operadora" name="nome_operadora"
+                   value="{{ form.nome_operadora if form else '' }}" required
+                   autocomplete="off" spellcheck="false">
+          </div>
+          <div class="cbx">
+            <label class="v-label req" for="rn1">RN1</label>
+            <input class="v-input w-compact" type="text" id="rn1" name="rn1"
+                   value="{{ form.rn1 if form else '' }}" required
+                   inputmode="numeric" maxlength="5" pattern="\d{1,5}"
+                   autocomplete="off" spellcheck="false">
+          </div>
+          <!-- Campo Atendimento ocultado (código preservado para reativação) -->
+          <div class="d-none">
+            <label class="v-label" for="atendimento">Atendimento</label>
+            {% set atend = (form.atendimento if form else '') %}
+            <select id="atendimento" name="atendimento" class="v-input">
+              <option value="" {{ 'selected' if not atend }}>Selecione…</option>
+              <option value="UF"      {{ 'selected' if atend=='UF' }}>UF</option>
+              <option value="CN"      {{ 'selected' if atend=='CN' }}>CN</option>
+              <option value="REG I"   {{ 'selected' if atend=='REG I' }}>REG I</option>
+              <option value="REG II"  {{ 'selected' if atend=='REG II' }}>REG II</option>
+              <option value="REG III" {{ 'selected' if atend=='REG III' }}>REG III</option>
+            </select>
+          </div>
+          <div id="qualGroup" class="d-none">
+            <label class="v-label" for="qual">Qual?</label>
+            <input class="v-input" type="text" id="qual" name="qual"
+                   value="{{ form.qual if form else '' }}">
+          </div>
+          <div>
+            <span class="v-label">Redes</span>
+            {# Preenchido automaticamente pelo "Tipo de Serviço" do Anexo 5 —
+               exibido como texto (não é editável). #}
+            <input type="hidden" id="redes" name="redes" value="{{ form.redes if form else '' }}">
+            <div class="ro-value" id="redesTxt">
+              {% if form and form.redes %}{{ form.redes }}{% else %}<span class="muted">automático</span>{% endif %}
+            </div>
+          </div>
+          <!-- Campo TMR ocultado (código preservado para reativação) -->
+          <div class="d-none">
+            <label class="v-label" for="tmr">TMR</label>
+            <input class="v-input" type="text" id="tmr" name="tmr"
+                   value="{{ form.tmr if form else '' }}"
+                   inputmode="numeric" maxlength="2" pattern="\d{1,2}">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2 | Contatos -->
+    <div class="sec">
+      <div class="sec-header">{% set ns.n = ns.n + 1 %}{{ sec_head(ns.n, 'Contatos e Responsáveis', 'Quem acompanha este PTI.') }}</div>
+      <div class="sec-body">
+        <div class="field-grid col3">
+          <div>
+            <label class="v-label req" for="responsavel_operadora">Responsável Operadora</label>
+            <input class="v-input" type="text" id="responsavel_operadora" name="responsavel_operadora"
+                   value="{{ form.responsavel_operadora if form else '' }}" required>
+          </div>
+          {# Gestão ITX Atacado e Eng de ITX são definidos pelo sistema
+             (usuário logado / config.ENG_ITX_NAME): exibidos como texto. #}
+          {% set gestao = form.responsavel_atacado if form and form.responsavel_atacado else CURRENT_USER_NAME %}
+          <div>
+            <span class="v-label">Gestão ITX Atacado</span>
+            <input type="hidden" id="responsavel_itx_gestao" name="responsavel_atacado" value="{{ gestao }}">
+            <div class="ro-value">{{ gestao }}</div>
+          </div>
+          <div>
+            <span class="v-label">Eng de ITX</span>
+            <div class="ro-value">{{ ENG_ITX_NAME }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3 | Escopo — o Atacado preenche; a Engenharia vê somente leitura -->
+    <div class="sec">
+      <div class="sec-header">{% set ns.n = ns.n + 1 %}{{ sec_head(ns.n, 'Escopo', 'O que será interligado e o que se aplica ao projeto.') }}</div>
+      <div class="sec-body">
+        <div class="esc-top">
+          <div>
+            <label class="v-label req" for="trafegoControl">Tipos de tráfego</label>
+            {# Seleção por clique — lista oficial de traffic_types.py. Cada tipo
+               carrega Formato do Nº de A, encaminhamentos, CODEC e sinalização,
+               usados na aba Encaminhamento do PTI. #}
+            <div class="ms" id="trafegoMulti">
+              <div class="ms-control" id="trafegoControl" tabindex="0" role="button"
+                   aria-haspopup="listbox" aria-expanded="false">
+                <span class="ms-placeholder" id="trafegoPlaceholder">Selecione os tipos de tráfego…</span>
+                <span class="ms-caret"><i class="bi bi-chevron-down"></i></span>
+              </div>
+              <div class="ms-panel" role="listbox">
+                <div class="ms-options" id="trafegoOptions">
+                  {% for t in TRAFFIC_TYPES %}
+                  <label class="ms-opt">
+                    <input type="checkbox" class="esc-flag" value="{{ t.tipo }}" data-flag="{{ t.tipo }}">
+                    <span>{{ t.tipo }}</span>
+                  </label>
+                  {% endfor %}
+                </div>
+                <div class="ms-foot">
+                  <span><span id="trafegoCount">0</span> selecionado(s)</span>
+                  <button type="button" id="trafegoClear">Limpar seleção</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <label class="v-label req" for="asn">ASN da operadora</label>
+            <input class="v-input" type="text" id="asn" name="asn"
+                   value="{{ form.asn if form else '' }}" required
+                   inputmode="numeric" minlength="5" maxlength="6" pattern="\d{5,6}">
+          </div>
+        </div>
+
+        <div style="margin-top:1rem">
+          <label class="v-label req" for="escopo_texto">Descrição do tráfego</label>
+          <textarea class="v-input" id="escopo_texto" name="escopo_text" rows="2" required
+                    style="min-height:64px">{{ form.escopo_text if form else '' }}</textarea>
+        </div>
+
+        {# Antes em dois grupos ("Características do projeto" e "Rede e
+           endereçamento"); agora uma lista única, lida de cima para baixo. #}
+        <div class="esc-checks">
+          <span class="v-label">Marque o que se aplica</span>
+          <div class="check-grid">
+            <label class="chip-label" for="csp">
+              <input type="checkbox" id="csp" name="csp" class="form-check-input" {% if form and form.csp %}checked{% endif %}> CSP
+            </label>
+            <label class="chip-label" for="servicos_especiais">
+              <input type="checkbox" id="servicos_especiais" name="servicos_especiais" class="form-check-input" {% if form and form.servicos_especiais %}checked{% endif %}> Serviços Especiais
+            </label>
+            <label class="chip-label" for="cng">
+              <input type="checkbox" id="cng" name="cng" class="form-check-input" {% if form and form.cng %}checked{% endif %}> CNG
+            </label>
+            <label class="chip-label" id="lbl_scm" for="scm">
+              <input type="checkbox" id="scm" name="scm" class="form-check-input sip-flag" {% if form and form.scm %}checked{% endif %}> SCM
+            </label>
+            <label class="chip-label" id="lbl_av" for="av">
+              <input type="checkbox" id="av" name="av" class="form-check-input sip-flag" {% if form and form.av %}checked{% endif %}> AV
+            </label>
+            <label class="chip-label" for="projeto_padrao">
+              <input type="checkbox" id="projeto_padrao" name="projeto_padrao" class="form-check-input" {% if form and form.projeto_padrao %}checked{% endif %}> Projeto padrão
+            </label>
+            <label class="chip-label" for="sbc_ativo">
+              <input type="checkbox" id="sbc_ativo" name="sbc_ativo" class="form-check-input" {% if form and form.sbc_ativo %}checked{% endif %}> SBC ativo
+            </label>
+            <label class="chip-label" for="ip_reservado">
+              <input type="checkbox" id="ip_reservado" name="ip_reservado" class="form-check-input" {% if form and form.ip_reservado %}checked{% endif %}> IP reservado
+            </label>
+            <label class="chip-label" for="vivo_reserva">
+              <input type="checkbox" id="vivo_reserva" name="vivo_reserva" class="form-check-input" {% if form and form.vivo_reserva %}checked{% endif %}> Vivo reserva IP
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% if engineer_mode %}
+    <!-- Dados VIVO (somente Engenharia) — seção própria -->
+    <div class="sec">
+      <div class="sec-header">
+        {% set ns.n = ns.n + 1 %}{{ sec_head(ns.n, 'Dados VIVO', 'Pontos de interconexão do lado VIVO. Clique no SBC para ver a capacidade de cada um.') }}
+        <div class="sec-actions">
+          <span class="cap-badge">Qtd de Interconexões: <span id="vivoCount">0</span>/{{ MAX_TABLE_ROWS }}</span>
+          <button type="button" class="btn-o btn-sm" id="addRowVivo" title="Adicionar interconexão"><i class="bi bi-plus"></i> Adicionar</button>
+        </div>
+      </div>
+      <div class="sec-body" style="padding:.75rem">
+        <div class="data-sec">
+          <table id="tableVivo">
+            {# SBC VIVO ocupa o lugar da antiga coluna CDSIP_SPO_PL / CDSIP_SPO_JG
+               (bloco do SipRouter). A coluna antiga continua no código, oculta. #}
+            <thead><tr>
+              <th>Ref</th><th>Data</th><th>Escopo</th><th>Localidade</th>
+              <th>CN</th><th>SBC VIVO</th><th class="hide-col">CDSIP_SPO_PL / CDSIP_SPO_JG</th><th class="hide-col">ID VIVO</th><th>Endereço Link</th>
+              <th>Cidade</th><th>UF</th><th class="hide-col">Lat.</th><th class="hide-col">Long.</th>
+              <th></th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <!-- Painel Siprouter — desativado (SIPROUTER_ATIVO=false no JS);
+             mantido para reativação. -->
+        <div id="sipPanel" style="display:none;margin-top:.5rem">
+          <div id="sipLoading" style="display:none;font-size:.78rem;color:var(--sub);text-align:center;padding:.5rem">Consultando siprouter…</div>
+          <div id="sipResult"></div>
+          <div id="sipEmpty"   style="display:none;font-size:.78rem;color:var(--sub);text-align:center;padding:.5rem"></div>
+          <span id="sipPanelMeta" style="display:none"></span>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- 4 | Dados Operadora -->
+    <div class="sec">
+      <div class="sec-header">
+        {% set ns.n = ns.n + 1 %}{{ sec_head(ns.n, 'Dados Operadora', 'Pontos de interconexão do lado da operadora. Digite o EOT — a UF vem sozinha.' if not engineer_mode else 'Pontos de interconexão do lado da operadora. Preencha a Mask de cada linha.') }}
+        {% if not engineer_mode %}
+        <div class="sec-actions">
+          <span class="cap-badge">Qtd de Interconexões: <span id="opCount">0</span>/{{ MAX_TABLE_ROWS }}</span>
+          <button type="button" class="btn-o btn-sm" id="addRowOperadora" title="Adicionar interconexão"><i class="bi bi-plus"></i> Adicionar</button>
+        </div>
+        {% endif %}
+      </div>
+      <div class="sec-body" style="padding:.75rem">
+        <div class="data-sec">
+          <table id="tableOperadora">
+            <thead><tr>
+              <th>Ref</th><th>Localidade</th><th>EOT LC</th><th>EOT LD</th>
+              <th>CN</th><th>SBC</th><th class="fx-col">Faixa IP</th><th class="mask-col">Mask</th><th class="idop-col">ID OPERADORA</th>
+              <th>Endereço Link</th><th>Cidade</th><th>UF</th><th class="hide-col">Lat.</th><th class="hide-col">Long.</th>
+              {% if not engineer_mode %}<th></th>{% endif %}
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5 | Infraestrutura -->
+    <div class="sec">
+      <div class="sec-header">{% set ns.n = ns.n + 1 %}{{ sec_head(ns.n, 'Infraestrutura', 'Quem responde pela infraestrutura do link.') }}</div>
+      <div class="sec-body">
+        <div class="field-grid col2">
+          <div>
+            <label class="v-label req" for="responsavel_infra">Responsável pela infraestrutura</label>
+            <input class="v-input" type="text" id="responsavel_infra" name="responsavel_infra"
+                   value="{{ form.responsavel_infra if form else '' }}" required>
+          </div>
+          <div style="align-self:end">
+            <label class="chip-label" for="operadora_ciente">
+              <input type="checkbox" id="operadora_ciente" name="operadora_ciente" class="form-check-input"
+                     {% if form and form.operadora_ciente %}checked{% endif %}>
+              Operadora ciente da responsabilidade
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6 | LCR Nacional -->
+    <div class="sec">
+      <div class="sec-header">{% set ns.n = ns.n + 1 %}{{ sec_head(ns.n, 'LCR Nacional', 'Marque o que se aplica.') }}</div>
+      <div class="sec-body">
+        <div class="chips-row">
+          <label class="chip-label" for="lcr_nacional">
+            <input type="checkbox" id="lcr_nacional" name="lcr_nacional" class="form-check-input"
+                   {% if form and form.lcr_nacional %}checked{% endif %}> LCR Nacional
+          </label>
+          <label class="chip-label" for="white_list">
+            <input type="checkbox" id="white_list" name="white_list" class="form-check-input"
+                   {% if form and form.white_list %}checked{% endif %}> White List
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7 | Faixa de Numeração -->
+    <div class="sec">
+      <div class="sec-header">{% set ns.n = ns.n + 1 %}{{ sec_head(ns.n, 'Faixa de Numeração', 'Marque se os prefixos da operadora já estão liberados.') }}</div>
+      <div class="sec-body">
+        <label class="chip-label" for="prefixos_liberados_abr">
+          <input type="checkbox" id="prefixos_liberados_abr" name="prefixos_liberados_abr" class="form-check-input"
+                 {% if form and form.prefixos_liberados_abr %}checked{% endif %}> Prefixos liberados na ABR
+        </label>
+      </div>
+    </div>
+
+    <!-- 8 | Premissas -->
+    <div class="sec">
+      <div class="sec-header">{% set ns.n = ns.n + 1 %}{{ sec_head(ns.n, 'Premissas de Abordagem', 'Montadas a partir dos tipos de tráfego escolhidos no Escopo.') }}</div>
+      <div class="sec-body">
+        <div class="field-grid col2" style="margin-bottom:1rem">
+          <div style="align-self:end">
+            <label class="chip-label" for="premissas_ok">
+              <input type="checkbox" id="premissas_ok" name="premissas_ok" class="form-check-input"
+                     {% if form and form.premissas_ok %}checked{% endif %}>
+              Aprovação de acordo com as informações apresentadas.
+            </label>
+          </div>
+          <div>
+            {# Definido em config.ENG_ITX_NAME — exibido como texto #}
+            <span class="v-label">Aprovado por</span>
+            <div class="ro-value">{{ ENG_ITX_NAME }}</div>
+          </div>
+        </div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:.78rem" id="premissasTable">
+            <thead><tr style="background:#faf9fd;border-bottom:1px solid var(--bdr)">
+              <th style="padding:.45rem .75rem;font-weight:600;font-size:.7rem;color:var(--sub)">Tráfego</th>
+              <th style="padding:.45rem .75rem;font-weight:600;font-size:.7rem;color:var(--sub)">Formato do Nº de A</th>
+              <th style="padding:.45rem .75rem;font-weight:600;font-size:.7rem;color:var(--sub)">Encaminhamento previsto</th>
+              <th style="padding:.45rem .75rem;font-weight:600;font-size:.7rem;color:var(--sub)">CODEC</th>
+            </tr></thead>
+            {# Premissas geradas da tabela oficial (traffic_types.py):
+               aparecem apenas os tráfegos marcados na seção 3. #}
+            <tbody>
+              {% for t in TRAFFIC_TYPES %}
+              <tr style="border-bottom:1px solid var(--bdr)" data-flag="{{ t.tipo }}">
+                <td style="padding:.4rem .75rem;font-weight:600;white-space:nowrap">{{ t.tipo }}</td>
+                <td style="padding:.4rem .75rem;color:var(--sub);white-space:pre-line">{{ t.formato_no_a }}</td>
+                <td style="padding:.4rem .75rem;color:var(--sub)">
+                  <strong>VIVO&nbsp;&rarr;&nbsp;Op_B:</strong> {{ t.enc_ab }}<br>
+                  <strong>Op_B&nbsp;&rarr;&nbsp;VIVO:</strong> {{ t.enc_ba }}
+                </td>
+                <td style="padding:.4rem .75rem;color:var(--sub);white-space:nowrap">{{ t.codec }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <p id="premissasEmpty" style="display:none;font-size:.78rem;color:var(--sub);text-align:center;padding:.75rem">
+            Marque os tipos de tráfego na seção 3 para ver as premissas correspondentes.
+          </p>
+        </div>
+
+        {% if engineer_mode %}
+        {# Dimensionamento por tráfego — vai para as colunas BANDA / CANAIS /
+           CAPS da aba Encaminhamento do PTI. #}
+        <div style="margin-top:1.25rem">
+          <p style="font-size:.75rem;font-weight:700;margin:0 0 .5rem">
+            Dimensionamento por tipo de tráfego
+            <span style="font-weight:400;color:var(--sub)">— preenche BANDA, CANAIS e CAPS no PTI</span>
+          </p>
+          <div style="overflow-x:auto">
+            <table class="dim-table" id="dimTable">
+              <thead>
+                <tr>
+                  <th rowspan="2" style="text-align:left">Tipo de Tráfego</th>
+                  <th colspan="2">Banda</th>
+                  <th colspan="2">Canais</th>
+                  <th colspan="2">CAPS</th>
+                </tr>
+                <tr>
+                  <th>Exist.</th><th>Plan.</th>
+                  <th>Exist.</th><th>Plan.</th>
+                  <th>Exist.</th><th>Plan.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for t in TRAFFIC_TYPES %}
+                <tr data-flag="{{ t.tipo }}">
+                  <td style="font-weight:600;white-space:nowrap">{{ t.tipo }}</td>
+                  {% for campo in ['banda_exist','banda_plan','canais_exist','canais_plan','caps_exist','caps_plan'] %}
+                  <td><input type="text" class="dim-input" data-campo="{{ campo }}" autocomplete="off"></td>
+                  {% endfor %}
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            <p id="dimEmpty" style="display:none;font-size:.78rem;color:var(--sub);text-align:center;padding:.75rem">
+              Nenhum tipo de tráfego selecionado pelo Atacado.
+            </p>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- 9 | Parâmetros de Programação — respondidos pela OPERADORA -->
+    {% if engineer_mode %}
+    <div class="sec" id="eng-section">
+      <div class="sec-header">
+        {% set ns.n = ns.n + 1 %}{{ sec_head(ns.n, 'Parâmetros de Programação — Operadora', 'A operadora responde no PTI e devolve o arquivo. Importe-o aqui.') }}
+        {% if op_params %}
+        <span class="badge-s {{ 'done' if op_params.respondidos >= op_params.esperados else 'review' }}">
+          {{ op_params.respondidos }}/{{ op_params.esperados }} respondidos
+        </span>
+        {% endif %}
+      </div>
+      <div class="sec-body">
+
+        {# Estes parâmetros NÃO são preenchidos pelo Atacado nem pela
+           Engenharia: a operadora responde na aba "Parâmetros de
+           Programação" do PTI e devolve o arquivo, importado abaixo.
+           Um único botão escolhe o arquivo e já importa (form #importForm,
+           fora do formulário principal). #}
+        <div class="op-import">
+          <div class="op-import-head">
+            <i class="bi bi-inbox-fill"></i>
+            <div>
+              <strong>PTI devolvido pela operadora</strong>
+              {% if op_params %}
+              <p>
+                Última importação: {{ form.operadora_params_em|date_br }}
+                {% if op_params.desconhecidos %}
+                  · {{ op_params.desconhecidos|length }} item(ns) fora da lista oficial ignorado(s)
+                {% endif %}
+              </p>
+              {% else %}
+              <p>Nenhuma resposta importada ainda. Os {{ PARAMS_TOTAL }} parâmetros aparecem aqui depois da importação.</p>
+              {% endif %}
+            </div>
+            <input type="file" id="arquivoPti" name="arquivo_pti" form="importForm"
+                   accept=".xlsx,.xlsm" hidden>
+            <button type="button" class="btn-p btn-sm" id="btnImportarPti" style="margin-left:auto;flex-shrink:0">
+              <i class="bi bi-upload"></i> {{ 'Importar novamente' if op_params else 'Importar PTI respondido' }}
+            </button>
+          </div>
+          {# Fluxo antigo em dois passos ("Escolher arquivo" + "Importar
+             respostas") — substituído pelo botão único acima.
+          <div class="op-import-actions">
+            <button type="button" class="btn-o btn-sm" id="btnEscolherPti">
+              <i class="bi bi-paperclip"></i> Escolher arquivo
+            </button>
+            <span id="arquivoPtiNome" class="op-import-file">Nenhum arquivo selecionado</span>
+            <button type="button" class="btn-p btn-sm" id="btnImportarPtiAntigo" disabled>
+              <i class="bi bi-upload"></i> Importar respostas
+            </button>
+          </div>
+          #}
+        </div>
+
+        {% if not op_params %}
+        {# Estado vazio antigo (ícone grande) — o aviso agora fica no próprio
+           quadro de importação, acima.
+        <div class="empty" style="padding:2rem 1rem">
+          <i class="bi bi-hourglass-split"></i>
+          <p>Nenhuma resposta importada ainda.</p>
+        </div>
+        #}
+        {% else %}
+        <div class="params-wrap">
+          <table class="params-table">
+            <thead>
+              <tr>
+                <th style="width:38%">Parâmetro</th>
+                <th style="width:22%">Valor requerido</th>
+                <th style="width:22%">Resposta da operadora</th>
+                <th style="width:9%">Grau</th>
+                <th style="width:9%">Cumpre?</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for bloco in PARAMS_SECOES %}
+              <tr class="params-secao"><td colspan="5">{{ bloco.secao }}</td></tr>
+                {% for item, valor, grau, obs, responder in bloco.itens %}
+                {% set key = param_key(bloco.secao, item) %}
+                {% set d = op_params.detalhes.get(key) %}
+                {% set resp = d.resposta if d else none %}
+                <tr>
+                  <td>
+                    {{ item }}
+                    {% if obs %}<small class="params-obs">{{ obs }}</small>{% endif %}
+                  </td>
+                  <td class="params-valor">{{ valor }}</td>
+                  <td class="params-resp">{{ (d.valor_operadora if d else '') or '—' }}</td>
+                  <td class="params-grau">{{ grau }}</td>
+                  <td class="params-cumpre">
+                    {% if not responder %}
+                      <span class="op-vazio" title="Informativo — não requer resposta">n/a</span>
+                    {% elif resp %}
+                      <span class="op-sim"><i class="bi bi-check-circle-fill"></i> Sim</span>
+                    {% elif resp is not none %}
+                      <span class="op-nao"><i class="bi bi-x-circle-fill"></i> Não</span>
+                    {% else %}
+                      <span class="op-vazio">— pendente</span>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+
+        <div style="margin-top:1rem">
+          <label class="v-label" for="eng_notes">Observações da Engenharia</label>
+          <textarea class="v-input" id="eng_notes" rows="2"></textarea>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+  </form>
+
+  {% if engineer_mode and form %}
+  {# Envio do PTI devolvido pela operadora. Fica fora do formulário principal
+     (não pode haver <form> aninhado); o campo de arquivo da seção de
+     Parâmetros aponta para cá com o atributo form="importForm". #}
+  <form id="importForm" method="post" enctype="multipart/form-data" hidden
+        action="{{ url_for('engenharia.importar_parametros', form_id=form.id) }}"></form>
+  {% endif %}
+</div>
+
+<!-- Pendências: aparece quando falta algo ao finalizar/salvar -->
+<div class="val-box" id="valBox" role="alert" hidden>
+  <div class="val-head">
+    <i class="bi bi-exclamation-circle-fill"></i>
+    <span id="valTitle">Faltam campos</span>
+    <button type="button" id="valClose" title="Fechar">✕</button>
+  </div>
+  <ul id="valList"></ul>
+</div>
+
+<!-- Barra de ações -->
+<div class="action-bar">
+  {% if engineer_mode %}
+    <a href="{{ url_for('engenharia.form_list') }}" class="btn-g">Cancelar</a>
+    <button type="button" id="btnSaveEng" onclick="document.getElementById('formTecnico').requestSubmit()" class="btn-p">
+      <span class="spinner-border spinner-border-sm d-none me-1" id="spin"></span> Salvar validação
+    </button>
+  {% else %}
+    <button type="button" class="btn-g" id="resetForm">Limpar</button>
+    <button type="button" id="btnSave" class="btn-o" onclick="saveDraft()">
+      <span class="spinner-border spinner-border-sm d-none me-1" id="spinSave"></span> Salvar rascunho
+    </button>
+    <button type="button" id="btnFinish" class="btn-p" onclick="finalizeSubmit()">
+      <span class="spinner-border spinner-border-sm d-none me-1" id="spinFinish"></span> Finalizar
+    </button>
+  {% endif %}
+</div>
+
+<!-- =====================================================================
+     JAVASCRIPT
+     ===================================================================== -->
+<script data-engineer="{{ 'true' if engineer_mode else 'false' }}" data-cap="{{ MAX_TABLE_ROWS }}">
+const ENG = document.currentScript.getAttribute('data-engineer') === 'true';
+const CAP = parseInt(document.currentScript.getAttribute('data-cap'), 10) || 5;
+const ALL_UFS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'];
+
+/* CNs oficiais (código, cidade, UF) — base dos seletores CN/Cidade por UF */
+const CN_INFO = {{ CN_FULL|tojson }};
+const CN_BY_UF = {};     // uf -> [{codigo,nome,uf}]
+const CITY_BY_UF = {};   // uf -> [cidades]
+const CN_META = {};      // codigo -> {uf, city}
+const CITY_META = {};    // cidade -> {cn, uf}
+CN_INFO.forEach(c=>{
+  (CN_BY_UF[c.uf]   = CN_BY_UF[c.uf]   || []).push(c);
+  if(c.nome) (CITY_BY_UF[c.uf] = CITY_BY_UF[c.uf] || []).push(c.nome);
+  CN_META[c.codigo] = {uf:c.uf, city:c.nome};
+  if(c.nome && !CITY_META[c.nome]) CITY_META[c.nome] = {cn:c.codigo, uf:c.uf};
+});
+Object.values(CITY_BY_UF).forEach(list=>list.sort((a,b)=>a.localeCompare(b,'pt')));
+
+/* ── Estado ── */
+let dirty=false, submitting=false;
+const setDirty=()=>{ dirty=true; };
+
+/* =====================================================================
+   OPERADORAS (Anexo 5) — dados e índices para autopreenchimento restrito
+   ===================================================================== */
+const OpDB = {
+  ready:false,
+  // rn1 -> {nomes:Set, ufs:Set, national:bool, eot:Map(uf->Set),
+  //         tipos:Set, eotLc:Map(eot->Set(uf)), eotLd:Map(eot->Set(uf))}
+  rn1Info:new Map(),
+  nomeInfo:new Map(),  // nome -> {rn1s:Set}
+  rn1s:[], nomes:[],
+};
+const isRealUf = u => /^[A-Z]{2}$/.test(u) && u !== 'BR';
+
+async function loadOperadoras(){
+  try{
+    const r = await fetch('/api/operadoras');
+    if(!r.ok) throw new Error(r.status);
+    const rows = await r.json();
+    rows.forEach(o=>{
+      if(!OpDB.rn1Info.has(o.rn1))
+        OpDB.rn1Info.set(o.rn1,{nomes:new Set(),ufs:new Set(),national:false,
+                                eot:new Map(),tipos:new Set(),
+                                eotLc:new Map(),eotLd:new Map()});
+      const ri = OpDB.rn1Info.get(o.rn1);
+      ri.nomes.add(o.nome);
+      if(isRealUf(o.uf)) ri.ufs.add(o.uf); else ri.national = true;
+      if(o.tipo_servico) ri.tipos.add(o.tipo_servico);
+      if(o.eot){
+        if(!ri.eot.has(o.uf)) ri.eot.set(o.uf,new Set());
+        ri.eot.get(o.uf).add(o.eot);
+        // Segmentação pela coluna "Modalidade / Banda" do Anexo 5:
+        //   Local (ou Banda SMP) → EOT LC | LDN/LDI → EOT LD
+        const mod = (o.modalidade||'').toLowerCase();
+        const isLocal = mod.includes('local') || mod.includes('banda');
+        const isLd    = mod.includes('ldn') || mod.includes('ldi');
+        if(isLocal){
+          if(!ri.eotLc.has(o.eot)) ri.eotLc.set(o.eot,new Set());
+          if(isRealUf(o.uf)) ri.eotLc.get(o.eot).add(o.uf);
+        }
+        if(isLd){
+          if(!ri.eotLd.has(o.eot)) ri.eotLd.set(o.eot,new Set());
+          if(isRealUf(o.uf)) ri.eotLd.get(o.eot).add(o.uf);
+        }
+      }
+      if(!OpDB.nomeInfo.has(o.nome)) OpDB.nomeInfo.set(o.nome,{rn1s:new Set()});
+      OpDB.nomeInfo.get(o.nome).rn1s.add(o.rn1);
+    });
+    OpDB.rn1s  = [...OpDB.rn1Info.keys()].sort((a,b)=>Number(a)-Number(b));
+    OpDB.nomes = [...OpDB.nomeInfo.keys()].sort((a,b)=>a.localeCompare(b,'pt'));
+    OpDB.ready = true;
+    refreshOperadoraFields();
+  }catch(e){ console.error('Falha ao carregar operadoras (Anexo 5):', e); }
+}
+
+/* Redes: preenchido pelo "Tipo de Serviço" do Anexo 5 */
+function syncRedes(){
+  const redesI = document.getElementById('redes'); if(!redesI) return;
+  const rn1 = (document.getElementById('rn1')?.value||'').trim();
+  const ri  = OpDB.rn1Info.get(rn1);
+  if(ri && ri.tipos.size) redesI.value = [...ri.tipos].sort().join(' / ');
+  setRedesTxt(redesI.value);
+}
+/* Redes é exibido como texto (valor no campo oculto #redes) */
+function setRedesTxt(v){
+  const t=document.getElementById('redesTxt'); if(!t) return;
+  if(v){ t.textContent=v; } else { t.innerHTML='<span class="muted">automático</span>'; }
+}
+
+/* Nome principal de um RN1 (para exibição nas opções) */
+const rn1Label = rn1 => {
+  const ri = OpDB.rn1Info.get(rn1);
+  return ri ? [...ri.nomes][0] : '';
+};
+
+/* UFs permitidas para o RN1 atual (todas, se operadora nacional) */
+function allowedUfs(){
+  const rn1 = (document.getElementById('rn1')?.value||'').trim();
+  const ri  = OpDB.rn1Info.get(rn1);
+  if(!ri || ri.national || !ri.ufs.size) return ALL_UFS;
+  return [...ri.ufs].sort();
+}
+
+/* =====================================================================
+   COMBOBOX — campo com opções restritas
+   ===================================================================== */
+function makeCombo(input, getItems, onPick){
+  const wrap = input.closest('.cbx'); if(!wrap) return;
+  const list = document.createElement('div');
+  list.className='cbx-list'; wrap.appendChild(list);
+  let items=[];
+
+  function render(){
+    const q = input.value.trim().toLowerCase();
+    items = getItems().filter(it =>
+      !q || it.value.toLowerCase().includes(q) || (it.label||'').toLowerCase().includes(q)
+    );
+    const shown = items.slice(0,60);
+    list.innerHTML='';
+    shown.forEach(it=>{
+      const d=document.createElement('div');
+      d.className='cbx-item';
+      d.innerHTML = `<span>${it.value}</span>` + (it.label?`<small>${it.label}</small>`:'');
+      d.addEventListener('mousedown',ev=>{ ev.preventDefault(); pick(it); });
+      list.appendChild(d);
+    });
+    if(items.length>shown.length){
+      const m=document.createElement('div'); m.className='cbx-more';
+      m.textContent=`… e mais ${items.length-shown.length}. Continue digitando para filtrar.`;
+      list.appendChild(m);
+    }
+    list.classList.toggle('open', shown.length>0);
+  }
+  function pick(it){
+    input.value=it.value;
+    list.classList.remove('open');
+    input.classList.remove('invalid'); input.setCustomValidity('');
+    onPick?.(it); setDirty();
+  }
+  function validate(){
+    const v=input.value.trim();
+    const ok = !v || getItems({all:true}).some(it=>it.value===v);
+    input.classList.toggle('invalid', !ok);
+    input.setCustomValidity(ok ? '' : 'Valor não consta no Anexo 5. Selecione uma opção da lista.');
+    if(ok && v) onPick?.(getItems({all:true}).find(it=>it.value===v));
+  }
+  input.addEventListener('focus', render);
+  input.addEventListener('input', ()=>{ render(); setDirty(); });
+  input.addEventListener('blur', ()=>{ setTimeout(()=>{ list.classList.remove('open'); validate(); },140); });
+  input.addEventListener('keydown', e=>{ if(e.key==='Escape') list.classList.remove('open'); });
+}
+
+/* ── Sincronização RN1 ⇄ Nome ⇄ UF ⇄ EOT ── */
+function initCombos(){
+  const rn1I  = document.getElementById('rn1');
+  const nomeI = document.getElementById('nome_operadora');
+  if(!rn1I || !nomeI) return;
+
+  // RN1: somente números, máx. 5
+  rn1I.addEventListener('input', ()=>{ rn1I.value = rn1I.value.replace(/\D/g,'').slice(0,5); });
+
+  const rn1Items = (opts={}) => {
+    if(!OpDB.ready) return [];
+    const nome = nomeI.value.trim();
+    let src = OpDB.rn1s;
+    if(!opts.all && nome && OpDB.nomeInfo.has(nome))
+      src = [...OpDB.nomeInfo.get(nome).rn1s].sort((a,b)=>Number(a)-Number(b));
+    return src.map(r=>({value:r, label:rn1Label(r)}));
+  };
+  const nomeItems = (opts={}) => {
+    if(!OpDB.ready) return [];
+    const rn1 = rn1I.value.trim();
+    let src = OpDB.nomes;
+    if(!opts.all && OpDB.rn1Info.has(rn1))
+      src = [...OpDB.rn1Info.get(rn1).nomes].sort((a,b)=>a.localeCompare(b,'pt'));
+    return src.map(n=>({value:n, label:''}));
+  };
+
+  makeCombo(rn1I, rn1Items, it=>{
+    const ri = OpDB.rn1Info.get(it.value);
+    if(ri){
+      const nomes=[...ri.nomes];
+      if(!nomes.includes(nomeI.value.trim())){
+        nomeI.value = nomes.length===1 ? nomes[0] : (nomeI.value.trim()? '' : nomes[0]);
+        nomeI.classList.remove('invalid'); nomeI.setCustomValidity('');
+      }
+    }
+    refreshOperadoraFields();
+  });
+  makeCombo(nomeI, nomeItems, it=>{
+    const ni = OpDB.nomeInfo.get(it.value);
+    if(ni){
+      const rn1s=[...ni.rn1s];
+      if(!rn1s.includes(rn1I.value.trim())){
+        rn1I.value = rn1s.length===1 ? rn1s[0] : '';
+        rn1I.classList.remove('invalid'); rn1I.setCustomValidity('');
+        if(rn1s.length===1) rn1I.dispatchEvent(new Event('input',{bubbles:true}));
+      }
+    }
+    refreshOperadoraFields();
+  });
+
+  // ASN: somente números, 5-6 dígitos
+  const asnI = document.getElementById('asn');
+  asnI?.addEventListener('input', ()=>{ asnI.value = asnI.value.replace(/\D/g,'').slice(0,6); });
+}
+
+/* ── UF selects nas tabelas ── */
+function buildUfSelect(sel, current){
+  const ufs = allowedUfs();
+  sel.innerHTML = '<option value="">UF</option>' +
+    ufs.map(u=>`<option value="${u}"${u===current?' selected':''}>${u}</option>`).join('');
+  if(current && !ufs.includes(current)) sel.value='';
+}
+
+/* ── Cidade: opções restritas às cidades da UF (Anexo/CN_METADATA) ── */
+function buildCitySelect(sel, uf, current, strict){
+  uf = (uf||'').toUpperCase().trim();
+  const cities = (uf && CITY_BY_UF[uf]) ? CITY_BY_UF[uf] : [];
+  let cur = current || '';
+  if(cur && strict && uf && !cities.includes(cur)) cur = '';   // limpa cidade fora da UF
+  let html = '<option value="">Cidade</option>';
+  if(cur && !cities.includes(cur)) html += `<option value="${cur}" selected>${cur}</option>`;
+  html += cities.map(c=>`<option value="${c}"${c===cur?' selected':''}>${c}</option>`).join('');
+  sel.innerHTML = html; sel.value = cur;
+}
+
+/* ── EOT: sugestões (datalist) por segmento LC/LD do Anexo 5 ── */
+function eotMapFor(kind){
+  const rn1 = (document.getElementById('rn1')?.value||'').trim();
+  const ri  = OpDB.rn1Info.get(rn1);
+  if(!ri) return new Map();
+  return kind==='lc' ? ri.eotLc : ri.eotLd;
+}
+/* UF automático: detectado a partir do EOT digitado (quando inequívoco) */
+function autofillUfFromEot(tr){
+  const ufSel = tr.querySelector('[data-field="uf"]'); if(!ufSel) return;
+  const lc = (tr.querySelector('[data-eot="lc"]')?.value||'').toUpperCase().trim();
+  const ld = (tr.querySelector('[data-eot="ld"]')?.value||'').toUpperCase().trim();
+  const ufs = new Set();
+  if(lc) (eotMapFor('lc').get(lc)||new Set()).forEach(u=>ufs.add(u));
+  if(ld) (eotMapFor('ld').get(ld)||new Set()).forEach(u=>ufs.add(u));
+  if(ufs.size===1){
+    ufSel.value=[...ufs][0];
+    ufSel.dispatchEvent(new Event('change',{bubbles:true}));
+  }
+}
+
+/* Reconstrói todos os campos dependentes da operadora selecionada */
+function refreshOperadoraFields(){
+  document.querySelectorAll('#tableVivo tbody tr, #tableOperadora tbody tr').forEach(tr=>{
+    const uf = tr.querySelector('[data-field="uf"]')?.value || '';
+    const cn = tr.querySelector('select[data-field="cn"]');
+    const city = tr.querySelector('select[data-field="cidade"]');
+    if(tr.querySelector('select[data-field="uf"]'))
+      buildUfSelect(tr.querySelector('select[data-field="uf"]'), uf);
+    if(cn)   buildCnSelect(cn, uf, cn.value, false);
+    if(city) buildCitySelect(city, uf, city.value, false);
+  });
+  syncRedes();
+  autofillUfFromOperadora();
+}
+
+/* =====================================================================
+   GEOCODIFICAÇÃO — endereço → latitude/longitude (OpenStreetMap)
+   ===================================================================== */
+const GEO_CACHE = new Map();
+async function geocode(query){
+  if(GEO_CACHE.has(query)) return GEO_CACHE.get(query);
+  const url='https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q='+encodeURIComponent(query);
+  try{
+    const r = await fetch(url, {headers:{'Accept':'application/json'}});
+    if(!r.ok) return null;
+    const d = await r.json();
+    const res = d && d[0] ? {lat:(+d[0].lat).toFixed(6), lon:(+d[0].lon).toFixed(6)} : null;
+    GEO_CACHE.set(query,res);
+    return res;
+  }catch(_){ return null; }
+}
+function wireGeocode(tr){
+  const addr = tr.querySelector('input[data-field="endereco_link"]');
+  const cid  = tr.querySelector('[data-field="cidade"]');
+  const uf   = tr.querySelector('[data-field="uf"]');
+  const lat  = tr.querySelector('input[data-field="lat"]');
+  const lon  = tr.querySelector('input[data-field="long"]');
+  if(!addr || !lat || !lon) return;
+  let timer=null;
+  const run = async ()=>{
+    const a=addr.value.trim(); if(!a) return;
+    const q=[a, (cid?.value||'').trim(), uf?.value, 'Brasil'].filter(Boolean).join(', ');
+    const res = await geocode(q);
+    if(res){
+      lat.value=res.lat; lon.value=res.lon;
+      [lat,lon].forEach(i=>{ i.style.background='#d1fae5'; setTimeout(()=>{ i.style.background=''; },1200); });
+      setDirty();
+    }
+  };
+  const schedule=()=>{ clearTimeout(timer); timer=setTimeout(run, 700); };
+  addr.addEventListener('blur', schedule);
+  cid?.addEventListener('change', schedule);
+  uf?.addEventListener('change', schedule);
+}
+
+/* ── Helpers de tabela ── */
+const mkInput=(attrs={})=>{
+  const i=document.createElement('input');
+  i.style.cssText='width:100%;padding:.3rem .4rem;border:1px solid var(--bdr);border-radius:6px;font-size:.75rem;outline:none';
+  Object.entries(attrs).forEach(([k,v])=>{ if(v!=null && v!==false) i.setAttribute(k, v===true?'':v); });
+  i.addEventListener('input',setDirty); i.addEventListener('change',setDirty);
+  i.addEventListener('focus',()=>{ i.style.borderColor='var(--p)'; i.style.boxShadow='0 0 0 2px rgba(107,9,166,.08)'; });
+  i.addEventListener('blur', ()=>{ i.style.borderColor='var(--bdr)'; i.style.boxShadow='none'; });
+  return i;
+};
+const mkUfSelect=(current)=>{
+  const s=document.createElement('select');
+  s.setAttribute('data-field','uf');
+  if(!ENG) s.setAttribute('required','');
+  buildUfSelect(s, current||'');
+  s.addEventListener('change',setDirty);
+  return s;
+};
+const mkCitySelect=(current)=>{
+  const s=document.createElement('select');
+  s.setAttribute('data-field','cidade');
+  if(!ENG) s.setAttribute('required','');
+  buildCitySelect(s, '', current||'', false);
+  s.addEventListener('change',setDirty);
+  return s;
+};
+
+/* ── CN: seletor com os CNs possíveis da UF escolhida ── */
+function buildCnSelect(sel, uf, current, strict){
+  uf = (uf||'').toUpperCase().trim();
+  const cns = (uf && CN_BY_UF[uf]) ? CN_BY_UF[uf] : CN_INFO;
+  let cur = current || '';
+  if(cur && strict && uf && !cns.some(c=>c.codigo===cur)) cur='';  // limpa CN fora da UF
+  let html = '<option value="">CN</option>';
+  if(cur && !cns.some(c=>c.codigo===cur))
+    html += `<option value="${cur}" selected>${cur}</option>`;
+  html += cns.map(c=>
+    `<option value="${c.codigo}"${c.codigo===cur?' selected':''}>${c.codigo} · ${c.nome}</option>`
+  ).join('');
+  sel.innerHTML = html; sel.value = cur;
+}
+const mkCnSelect=(current, requiredAttr)=>{
+  const s=document.createElement('select');
+  s.setAttribute('data-field','cn');
+  if(requiredAttr!=null) s.setAttribute('required','');
+  buildCnSelect(s, '', current||'', false);
+  s.addEventListener('change',setDirty);
+  return s;
+};
+
+/* Vínculo bidirecional UF ⇄ CN ⇄ Cidade da linha (Anexo 5 / CN_METADATA):
+   preencher qualquer um dos três completa os outros dois. */
+function wireGeoSelectors(tr){
+  const ufEl   = tr.querySelector('[data-field="uf"]');
+  const cnEl   = tr.querySelector('select[data-field="cn"]');
+  const cityEl = tr.querySelector('select[data-field="cidade"]');
+  let busy=false;
+  const guard = fn => () => { if(busy) return; busy=true; try{ fn(); }finally{ busy=false; } };
+
+  const ensureUfOption = uf => {
+    if(ufEl && ufEl.tagName==='SELECT' && uf &&
+       !Array.from(ufEl.options).some(o=>o.value===uf))
+      ufEl.insertAdjacentHTML('beforeend', `<option value="${uf}">${uf}</option>`);
+  };
+
+  // A partir da UF: filtra CN e Cidade; auto-preenche se a UF tiver 1 só CN.
+  function applyUf(uf){
+    uf=(uf||'').toUpperCase().trim();
+    ensureUfOption(uf); if(ufEl) ufEl.value=uf;
+    if(cnEl)   buildCnSelect(cnEl, uf, cnEl.value, true);
+    if(cityEl) buildCitySelect(cityEl, uf, cityEl.value, true);
+    if(uf && (CN_BY_UF[uf]||[]).length===1){
+      const only=CN_BY_UF[uf][0];
+      if(cnEl && !cnEl.value){ buildCnSelect(cnEl, uf, only.codigo, true); cnEl.value=only.codigo; }
+      if(cityEl && !cityEl.value){ buildCitySelect(cityEl, uf, only.nome, true); cityEl.value=only.nome; }
+    }
+    setDirty();
+  }
+
+  ufEl?.addEventListener(ufEl.tagName==='SELECT' ? 'change' : 'input',
+    guard(()=> applyUf(ufEl.value)));
+
+  cnEl?.addEventListener('change', guard(()=>{
+    const m=CN_META[cnEl.value]; if(!m) return;
+    ensureUfOption(m.uf); if(ufEl) ufEl.value=m.uf;
+    buildCnSelect(cnEl, m.uf, cnEl.value, true);
+    if(cityEl){ buildCitySelect(cityEl, m.uf, m.city, true); cityEl.value=m.city; }
+    setDirty();
+  }));
+
+  cityEl?.addEventListener('change', guard(()=>{
+    const m=CITY_META[cityEl.value]; if(!m) return;
+    ensureUfOption(m.uf); if(ufEl) ufEl.value=m.uf;
+    if(cnEl){ buildCnSelect(cnEl, m.uf, m.cn, true); cnEl.value=m.cn; }
+    buildCitySelect(cityEl, m.uf, m.city, true); cityEl.value=m.city;
+    setDirty();
+  }));
+}
+
+/* Preenche a UF automaticamente quando a operadora atua em uma única UF */
+function autofillUfFromOperadora(){
+  const ufs = allowedUfs();
+  if(ufs.length !== 1) return;
+  document.querySelectorAll('#tableVivo tbody tr, #tableOperadora tbody tr').forEach(tr=>{
+    const ufEl=tr.querySelector('[data-field="uf"]');
+    if(ufEl && !ufEl.value){ ufEl.value=ufs[0]; ufEl.dispatchEvent(new Event('change',{bubbles:true})); }
+  });
+}
+
+/* EOT: input livre — 3 caracteres alfanuméricos, maiúsculos, com sugestões
+   exibidas num dropdown estilizado (igual aos campos RN1/Operadora). */
+function wireEot(i){
+  i.addEventListener('input',()=>{ i.value=i.value.replace(/[^A-Za-z0-9]/g,'').toUpperCase().slice(0,3); });
+}
+const mkEotInput=(kind,current)=>{
+  const i=mkInput({'data-eot':kind, maxlength:'3', autocomplete:'off'});
+  i.classList.add('has-caret');
+  if(!ENG) i.setAttribute('required','');
+  i.value=current||'';
+  wireEot(i);
+  attachSuggestions(i, ()=>[...eotMapFor(kind).keys()].sort());
+  return i;
+};
+
+/* Dropdown de sugestões flutuante (posição fixa — não é cortado pela tabela).
+   Mantém o mesmo visual (.cbx-list) dos comboboxes de RN1/Operadora e
+   permite digitação livre (não restringe o valor). */
+function attachSuggestions(input, getItems){
+  let box=null;
+  const close=()=>{ if(box){ box.remove(); box=null; } };
+  const open=()=>{
+    close();
+    const q=(input.value||'').trim().toUpperCase();
+    const items=getItems().filter(v=>!q || String(v).toUpperCase().includes(q));
+    if(!items.length) return;
+    box=document.createElement('div');
+    box.className='cbx-list open cbx-float';
+    const r=input.getBoundingClientRect();
+    box.style.left=r.left+'px';
+    box.style.top=(r.bottom+2)+'px';
+    box.style.width=Math.max(r.width,96)+'px';
+    items.slice(0,50).forEach(v=>{
+      const d=document.createElement('div'); d.className='cbx-item'; d.textContent=v;
+      d.addEventListener('mousedown',e=>{
+        e.preventDefault(); input.value=v;
+        input.dispatchEvent(new Event('input',{bubbles:true}));
+        input.dispatchEvent(new Event('change',{bubbles:true}));
+        close();
+      });
+      box.appendChild(d);
+    });
+    document.body.appendChild(box);
+  };
+  input.addEventListener('focus',open);
+  input.addEventListener('input',open);
+  input.addEventListener('blur',()=>setTimeout(close,150));
+  window.addEventListener('scroll',close,true);
+  window.addEventListener('resize',close);
+};
+const mkRefLabel=()=>{
+  const sp=document.createElement('span'); sp.className='ref-label'; return sp;
+};
+const mkDel=()=>{
+  const b=document.createElement('button'); b.type='button'; b.className='del-btn'; b.innerHTML='<i class="bi bi-dash"></i>';
+  b.addEventListener('click',e=>{ e.currentTarget.closest('tr').remove(); upd(); setDirty(); });
+  return b;
+};
+/* Faixa IP: coluna visível/obrigatória apenas com "IP reservado" marcado */
+function syncFaixaIp(){
+  const on = !!document.getElementById('ip_reservado')?.checked;
+  document.getElementById('tableOperadora')?.classList.toggle('fx-off', !on);
+  document.querySelectorAll('#tableOperadora .fx-col input').forEach(i=>{
+    if(on && !ENG) i.setAttribute('required',''); else i.removeAttribute('required');
+  });
+}
+
+/* Renumera os rótulos "Linha N" e desabilita o (-) quando resta 1 linha */
+function renumber(tbody){
+  if(!tbody) return;
+  const rows=[...tbody.children];
+  rows.forEach((tr,i)=>{
+    const lbl=tr.querySelector('.ref-label'); if(lbl) lbl.textContent=String(i+1);
+    const del=tr.querySelector('.del-btn');   if(del) del.disabled = rows.length<=1;
+  });
+}
+const upd=()=>{
+  const tv=document.querySelector('#tableVivo tbody');
+  const to=document.querySelector('#tableOperadora tbody');
+  const vc=document.getElementById('vivoCount'); if(vc&&tv) vc.textContent=tv.children.length;
+  const oc=document.getElementById('opCount');   if(oc&&to) oc.textContent=to.children.length;
+  // "Adicionar" desabilitado ao atingir o limite de linhas
+  const av=document.getElementById('addRowVivo');      if(av&&tv) av.disabled=tv.children.length>=CAP;
+  const ao=document.getElementById('addRowOperadora'); if(ao&&to) ao.disabled=to.children.length>=CAP;
+  renumber(tv); renumber(to);
+};
+
+/* =====================================================================
+   SBC VIVO POR CAPACIDADE
+   Consulta /api/sbc/sugestoes (motor sbc/analyzer.py, alimentado pela
+   planilha de medições de CAPS em dados-sbcs/). Mostra a saúde de cada
+   SBC — disponível / moderado / crítico — e o recomendado. O campo também
+   aceita digitação livre, para quando não houver medição.
+   ===================================================================== */
+const SBC_CACHE = new Map();
+const SAUDE_LABEL = {disponivel:'Disponível', moderado:'Moderado', critico:'Crítico'};
+const escHtml = s => String(s??'').replace(/[&<>"']/g,
+  c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function fetchSbcs(cn, uf){
+  const key=`${cn||''}|${uf||''}`;
+  if(!SBC_CACHE.has(key)){
+    const qs = cn ? `cn=${encodeURIComponent(cn)}` : `uf=${encodeURIComponent(uf)}`;
+    SBC_CACHE.set(key, fetch(`/api/sbc/sugestoes?${qs}`)
+      .then(r=>r.ok ? r.json() : null).catch(()=>null));
+  }
+  return SBC_CACHE.get(key);
+}
+
+function mkSbcPicker(tr, current){
+  const wrap=document.createElement('div'); wrap.className='sbc-cell';
+  const dot=document.createElement('span'); dot.className='sbc-dot'; dot.title='Sem medição';
+  const inp=mkInput({'data-field':'sbc_vivo', autocomplete:'off'});
+  inp.classList.add('has-caret'); inp.value=current||'';
+  wrap.append(dot, inp);
+
+  let box=null, dados=null;
+  const loc=()=>({
+    cn:(tr.querySelector('[data-field="cn"]')?.value||'').trim(),
+    uf:(tr.querySelector('[data-field="uf"]')?.value||'').trim(),
+  });
+
+  /* Indicador colorido ao lado do campo, conforme o SBC escolhido */
+  function paintDot(){
+    const s=(dados?.sbcs||[]).find(x=>x.nome===inp.value.trim());
+    dot.className='sbc-dot'+(s ? ' '+s.saude : '');
+    dot.title = s ? `${SAUDE_LABEL[s.saude]||s.saude} · CAPS médio ${s.caps_avg}`
+                  : 'Sem medição para este SBC';
+  }
+  async function load(){
+    const {cn,uf}=loc();
+    dados = (cn||uf) ? await fetchSbcs(cn, uf) : null;
+    paintDot();
+    return dados;
+  }
+
+  const close=()=>{ if(box){ box.remove(); box=null; } };
+  function place(){
+    if(!box) return;
+    const r=inp.getBoundingClientRect(), M=12, vh=window.innerHeight;
+    const w=Math.min(380, window.innerWidth-24);
+    box.style.left=Math.max(M, Math.min(r.right-w, window.innerWidth-w-M))+'px';
+    const h=box.offsetHeight, below=vh-r.bottom-M, above=r.top-M;
+    const top=(below>=h+6 || below>=above) ? r.bottom+6 : r.top-6-h;
+    box.style.top=Math.max(M, Math.min(top, vh-h-M))+'px';
+  }
+
+  function render(d){
+    const sbcs=d?.sbcs||[];
+    const titulo=`SBCs — ${d?.cidade ? escHtml(d.cidade)+' / ' : ''}${escHtml(d?.uf||'')}`;
+    const fonte=[d?.source_file ? `Fonte: ${d.source_file}` : '',
+                 d?.source_modificado_em || '',
+                 d?.fallback_usado ? d.fallback_origem : ''].filter(Boolean).join(' · ');
+    let html=`<div class="sbc-head"><strong>${titulo}</strong><small>${escHtml(fonte)}</small></div>`;
+
+    if(!sbcs.length){
+      html+=`<div class="sbc-empty">${escHtml(d?.mensagem||'Não foi possível consultar os SBCs.')}<br>
+             <small>Coloque a planilha de medições de CAPS na pasta <b>dados-sbcs</b>.
+             Enquanto isso, o SBC pode ser digitado manualmente.</small></div>`;
+      box.innerHTML=html; return;
+    }
+    html+='<div class="sbc-list">';
+    let separou=false;
+    sbcs.forEach((s,i)=>{
+      if(s.saude==='critico' && !separou){
+        html+='<div class="sbc-sep">Críticos — evitar</div>'; separou=true;
+      }
+      const tend = s.caps_tendencia==='subindo' ? '↑ subindo'
+                 : s.caps_tendencia==='descendo' ? '↓ descendo' : '→ estável';
+      html+=`<div class="sbc-opt ${s.saude}" data-i="${i}">
+        <span class="sbc-dot ${s.saude}"></span>
+        <span class="sbc-nome">${escHtml(s.nome)}</span>
+        <span>${s.recomendado ? '<span class="sbc-badge rec">Recomendado</span> ' : ''}<span class="sbc-badge ${s.saude}">${SAUDE_LABEL[s.saude]||escHtml(s.saude)}</span></span>
+        <span class="sbc-meta">${escHtml(s.cidade||'')}${s.cidade?'/':''}${escHtml(s.uf)} · CAPS médio ${s.caps_avg} (máx ${s.caps_max}) · ${tend} · ${s.total_medicoes} medições${s.modelo ? ' · '+escHtml(s.modelo) : ''}</span>
+      </div>`;
+    });
+    html+='</div>';
+    box.innerHTML=html;
+    box.querySelectorAll('.sbc-opt').forEach(el=>{
+      el.addEventListener('mousedown',e=>{
+        e.preventDefault();
+        inp.value=sbcs[+el.dataset.i].nome;
+        paintDot(); setDirty(); close();
+      });
+    });
+  }
+
+  async function open(){
+    close();
+    box=document.createElement('div'); box.className='sbc-panel';
+    document.body.appendChild(box);
+    const {cn,uf}=loc();
+    if(!cn && !uf){
+      box.innerHTML='<div class="sbc-empty">Escolha o CN ou a UF desta linha para ver os SBCs.</div>';
+      place(); return;
+    }
+    box.innerHTML='<div class="sbc-empty">Consultando capacidade dos SBCs…</div>';
+    place();
+    const d=await load();
+    if(!box) return;
+    render(d); place();
+  }
+
+  inp.addEventListener('focus', open);
+  inp.addEventListener('input', paintDot);
+  inp.addEventListener('blur', ()=>setTimeout(close,160));
+  window.addEventListener('scroll', ()=>{ if(box) place(); }, true);
+  window.addEventListener('resize', close);
+  // CN/UF da linha mudou → recarrega a capacidade e recolore o indicador
+  setTimeout(()=>{
+    ['cn','uf'].forEach(f=>tr.querySelector(`[data-field="${f}"]`)
+      ?.addEventListener('change', ()=>load()));
+    if(inp.value) load();
+  },0);
+  return wrap;
+}
+
+/* ── Serialização (Ref = número incremental da linha) ── */
+function serVivo(){
+  // Lido pelo data-field de cada campo (independe da ordem das colunas)
+  return Array.from(document.querySelectorAll('#tableVivo tbody tr')).map((tr,idx)=>{
+    const f=k=>tr.querySelector(`[data-field="${k}"]`)?.value||'';
+    return {ref:String(idx+1),data:f('data'),escopo:f('escopo'),localidade:f('localidade'),cn:f('cn'),
+            bloco_ip:f('bloco_ip'),id_vivo:f('id_vivo'),endereco_link:f('endereco_link'),
+            cidade:f('cidade'),uf:f('uf'),lat:f('lat'),long:f('long'),sbc_vivo:f('sbc_vivo')};
+  });
+}
+function serOp(){
+  return Array.from(document.querySelectorAll('#tableOperadora tbody tr')).map((tr,idx)=>{
+    const c=tr.querySelectorAll('td');
+    const val=n=>c[n]?.querySelector('input,select')?.value||'';
+    return {ref:String(idx+1),localidade:val(1),eto_lc:val(2),eot_ld:val(3),cn:val(4),sbc:val(5),faixa_ip:val(6),mask:val(7),id_op:val(8),endereco_link:val(9),cidade:val(10),uf:val(11),lat:val(12),long:val(13)};
+  });
+}
+
+/* ── Siprouter SP Query ──
+   DESATIVADO: o SBC VIVO agora é escolhido pela capacidade (seletor da
+   coluna SBC VIVO). Para reativar o preenchimento automático do bloco
+   CDSIP_SPO_PL / CDSIP_SPO_JG, troque para true e mostre a coluna. */
+const SIPROUTER_ATIVO = false;
+const SIP = (function(){
+  const panel    = document.getElementById('sipPanel');
+  const metaEl   = document.getElementById('sipPanelMeta');
+  const loadEl   = document.getElementById('sipLoading');
+  const resultEl = document.getElementById('sipResult');
+  const emptyEl  = document.getElementById('sipEmpty');
+  if(!panel || !SIPROUTER_ATIVO) return { query:()=>{}, resetCache:()=>{} };
+
+  const _timers = {};
+  const _last   = {};
+
+  function resetCache(){
+    Object.keys(_last).forEach(k => delete _last[k]);
+    Object.keys(_timers).forEach(k => { clearTimeout(_timers[k]); delete _timers[k]; });
+  }
+  function getFlags(){
+    const scm = document.getElementById('scm')?.checked ? '1' : '0';
+    const av  = document.getElementById('av')?.checked  ? '1' : '0';
+    return {scm, av};
+  }
+  function renderResult(data, rowIdx){
+    loadEl.style.display='none'; emptyEl.style.display='none'; resultEl.innerHTML='';
+    if(!data.found){
+      emptyEl.style.display='block';
+      emptyEl.textContent = data.mensagem || 'Nenhum bloco IP encontrado.';
+      panel.style.display='block';
+      return;
+    }
+    const pl    = data.pl_bloco || '';
+    const jg    = data.jg_bloco || '';
+    const valor = pl && jg ? `PL:${pl} / JG:${jg}` : (pl || jg);
+    fillBlocoIP(valor, rowIdx);
+    metaEl.textContent = `CN ${data.cn} · ${data.descricao || ''} · ${data.mensagem || ''}`;
+    panel.style.display='block';
+  }
+  function fillBlocoIP(bloco, rowIdx){
+    const rows=document.querySelectorAll('#tableVivo tbody tr');
+    if(rowIdx<0||rowIdx>=rows.length) return;
+    const inp=rows[rowIdx].querySelector('[data-field="bloco_ip"]');
+    if(inp){
+      inp.value=bloco;
+      inp.style.background='#d1fae5';
+      setTimeout(()=>{ inp.style.background=''; },1200);
+      setDirty();
+    }
+  }
+  async function query(cn, rowIdx){
+    const rn1 = (document.getElementById('rn1')?.value||'').trim();
+    if(!rn1 || !cn || String(cn).replace(/\D/g,'').length < 2) return;
+    const {scm, av} = getFlags();
+    const ck = `${cn}:${rn1}:${scm}:${av}`;
+    if(_last[rowIdx] === ck) return;
+    _last[rowIdx] = ck;
+    clearTimeout(_timers[rowIdx]);
+    _timers[rowIdx] = setTimeout(async()=>{
+      panel.style.display='block';
+      loadEl.style.display='block';
+      resultEl.innerHTML='';
+      emptyEl.style.display='none';
+      try{
+        const r = await fetch(`/api/siprouter/query?cn=${encodeURIComponent(cn)}&rn1=${encodeURIComponent(rn1)}&scm=${scm}&av=${av}`);
+        if(!r.ok) throw new Error(r.status);
+        renderResult(await r.json(), rowIdx);
+      }catch(e){
+        loadEl.style.display='none';
+        emptyEl.style.display='block';
+        emptyEl.textContent='Erro ao consultar siprouter. Verifique CN e RN1.';
+      }
+    }, 320);
+  }
+  return { query, resetCache };
+})();
+
+// Re-disparar consulta quando SCM/AV mudar + estilo do chip
+document.querySelectorAll('.sip-flag').forEach(chk=>{
+  chk.addEventListener('change',()=>{
+    const firstRow = document.querySelector('#tableVivo tbody tr');
+    if(!firstRow) return;
+    const cnI = firstRow.querySelector('[data-field="cn"]');
+    if(cnI && cnI.value.length>=2) SIP.query(cnI.value, 0);
+  });
+});
+
+// Chips visuais (todas as labels .chip-label com checkbox)
+document.querySelectorAll('.chip-label').forEach(lbl=>{
+  const chk=lbl.querySelector('input[type="checkbox"]'); if(!chk) return;
+  const sync=()=>lbl.classList.toggle('on', chk.checked);
+  chk.addEventListener('change',sync); sync();
+});
+
+/* ── Wire CN autofill ── */
+function wireCN(tr){
+  const cnI=tr.querySelector('[data-field="cn"]');
+  if(!cnI) return;
+  const cnH=()=>{
+    const v=(cnI.value||'').replace(/\D/g,'').slice(0,2); cnI.value=v;
+    setDirty();
+    if(v.length===2){
+      const ri=Array.from(tr.parentElement.children).indexOf(tr);
+      SIP.query(v, ri);
+    }
+  };
+  ['input','change','blur'].forEach(ev=>{ cnI.addEventListener(ev,cnH); });
+  if((cnI.value||'').trim().length>=2) cnH();
+}
+
+// Re-disparar consulta quando RN1 do formulário mudar
+(function(){
+  const rn1I = document.getElementById('rn1');
+  if(!rn1I) return;
+  let t=null;
+  rn1I.addEventListener('input',()=>{
+    clearTimeout(t);
+    t=setTimeout(()=>{
+      SIP.resetCache();
+      document.querySelectorAll('#tableVivo tbody tr').forEach((tr,ri)=>{
+        const cnI=tr.querySelector('[data-field="cn"]');
+        const cn=(cnI?.value||'').replace(/\D/g,'');
+        if(cn.length>=2) SIP.query(cn, ri);
+      });
+    },400);
+  });
+})();
+
+/* ── Tabelas dinâmicas ── */
+(function(){
+  let vi=[],oi=[];
+  const fe=document.getElementById('formTecnico');
+  try{ vi=JSON.parse(fe.getAttribute('data-vivo-json')||'[]'); }catch(_){}
+  try{ oi=JSON.parse(fe.getAttribute('data-operadora-json')||'[]'); }catch(_){}
+  const tv=document.querySelector('#tableVivo tbody');
+  const to=document.querySelector('#tableOperadora tbody');
+  const reqAtk = ENG ? null : '';   // required só para o Atacado
+
+  function addVivo(v={}){
+    if(!tv) return;
+    if(tv.children.length>=CAP){ alert('Máximo '+CAP+' linhas.'); return; }
+    const tr=document.createElement('tr');
+
+    // Ref: rótulo fixo "Linha N" (não editável)
+    const tdRef=document.createElement('td'); tdRef.appendChild(mkRefLabel()); tr.appendChild(tdRef);
+
+    [['data',{'data-field':'data'}],['escopo',{'data-field':'escopo'}],['localidade',{'data-field':'localidade'}]
+    ].forEach(([k,a])=>{
+      const td=document.createElement('td'); const i=mkInput(a); i.value=v[k]??'';
+      td.appendChild(i); tr.appendChild(td);
+    });
+
+    // CN: seletor com os CNs possíveis da UF da linha
+    const tdCn=document.createElement('td');
+    tdCn.appendChild(mkCnSelect(v.cn??'', null)); tr.appendChild(tdCn);
+
+    // SBC VIVO — escolhido pela capacidade (planilha de medições de CAPS).
+    // Ocupa o lugar da antiga coluna CDSIP_SPO_PL / CDSIP_SPO_JG.
+    const tdSbc=document.createElement('td');
+    tdSbc.appendChild(mkSbcPicker(tr, v.sbc_vivo??''));
+    tr.appendChild(tdSbc);
+
+    [['bloco_ip',{'data-field':'bloco_ip'}],                          // SipRouter — oculto via .hide-col
+     ['id_vivo',{'data-field':'id_vivo'}],                            // oculto via .hide-col
+     ['endereco_link',{'data-field':'endereco_link'}]
+    ].forEach(([k,a])=>{
+      const td=document.createElement('td');
+      if(k==='bloco_ip' || k==='id_vivo') td.className='hide-col';
+      const i=mkInput(a); i.value=v[k]??''; td.appendChild(i); tr.appendChild(td);
+    });
+
+    // Cidade (select por UF) e UF (select)
+    const tdCity=document.createElement('td'); tdCity.appendChild(mkCitySelect(v.cidade??'')); tr.appendChild(tdCity);
+    const tdUf=document.createElement('td');   tdUf.appendChild(mkUfSelect(v.uf??''));         tr.appendChild(tdUf);
+
+    // lat / long ocultos (geocodificação)
+    [['lat',{'data-field':'lat'}],['long',{'data-field':'long'}]
+    ].forEach(([k,a])=>{ const td=document.createElement('td'); td.className='hide-col'; const i=mkInput(a); i.value=v[k]??''; td.appendChild(i); tr.appendChild(td); });
+
+    const td=document.createElement('td'); td.appendChild(mkDel()); tr.appendChild(td);
+    tv.appendChild(tr); wireCN(tr); wireGeoSelectors(tr); wireGeocode(tr); upd(); setDirty();
+  }
+
+  function addOp(v={}){
+    if(!to) return;
+    if(to.children.length>=CAP){ alert('Máximo '+CAP+' linhas.'); return; }
+    const tr=document.createElement('tr');
+
+    // Ref: rótulo fixo "Linha N" (não editável)
+    const tdRef=document.createElement('td'); tdRef.appendChild(mkRefLabel()); tr.appendChild(tdRef);
+
+    // localidade
+    const tdLoc=document.createElement('td');
+    const iLoc=mkInput({required:reqAtk}); iLoc.value=v.localidade??'';
+    tdLoc.appendChild(iLoc); tr.appendChild(tdLoc);
+
+    // EOT LC / EOT LD — inputs livres (3 alfanum) com sugestões do Anexo 5
+    const selLc=mkEotInput('lc', v.eto_lc??'');
+    const selLd=mkEotInput('ld', v.eot_ld??'');
+    [selLc, selLd].forEach(sel=>{
+      const td=document.createElement('td'); td.appendChild(sel); tr.appendChild(td);
+      sel.addEventListener('input',()=>autofillUfFromEot(tr));
+      sel.addEventListener('change',()=>autofillUfFromEot(tr));
+    });
+
+    // CN: seletor com os CNs possíveis da UF escolhida
+    const tdCn=document.createElement('td');
+    tdCn.appendChild(mkCnSelect(v.cn??'', reqAtk)); tr.appendChild(tdCn);
+
+    // SBC auto-preenchido como "SBC." + EOT LC
+    const tdSbc=document.createElement('td');
+    const iSbc=mkInput({readonly:true});
+    iSbc.value=v.sbc??''; iSbc.style.background='#f9fafb'; iSbc.style.color='var(--sub)';
+    tdSbc.appendChild(iSbc); tr.appendChild(tdSbc);
+    const autoSbc=()=>{ const e=(selLc.value||'').trim(); iSbc.value=e?`SBC.${e}`:''; };
+    selLc.addEventListener('input', autoSbc);
+    selLc.addEventListener('change', autoSbc);
+    if(!iSbc.value) autoSbc();
+
+    // Faixa IP — visível apenas com "IP reservado" marcado (Seção 2)
+    const tdFx=document.createElement('td'); tdFx.className='fx-col';
+    const iFx=mkInput({}); iFx.value=v.faixa_ip??'';
+    tdFx.appendChild(iFx); tr.appendChild(tdFx);
+
+    // Mask — editável pela Engenharia; oculto para o Atacado
+    const tdMask=document.createElement('td'); tdMask.className='mask-col';
+    const iMask=mkInput({});
+    iMask.value=v.mask??'';
+    if(ENG){
+      iMask.classList.add('eng-mask');
+      const updateMaskColor = () => {
+        if((iMask.value||'').trim()){ iMask.style.removeProperty('background'); }
+        else { iMask.style.setProperty('background', '#ede9fe', 'important'); }
+      };
+      updateMaskColor();
+      iMask.addEventListener('input', updateMaskColor);
+    } else {
+      iMask.setAttribute('readonly','');
+      iMask.style.pointerEvents='none';
+    }
+    tdMask.appendChild(iMask); tr.appendChild(tdMask);
+
+    // id_op (oculto para o Atacado) e endereço
+    [['id_op',{}],
+     ['endereco_link',{'data-field':'endereco_link',required:reqAtk}]
+    ].forEach(([k,a])=>{
+      const td=document.createElement('td');
+      if(k==='id_op') td.className='idop-col';
+      const i=mkInput(a); i.value=v[k]??''; td.appendChild(i); tr.appendChild(td);
+    });
+
+    // Cidade — select restrito às cidades da UF
+    const tdCity=document.createElement('td'); tdCity.appendChild(mkCitySelect(v.cidade??'')); tr.appendChild(tdCity);
+
+    // UF — select restrito às UFs da operadora; preenchido automaticamente pelo EOT
+    const tdUf=document.createElement('td');
+    tdUf.appendChild(mkUfSelect(v.uf??'')); tr.appendChild(tdUf);
+
+    // lat / long — ocultos (preenchidos pela geocodificação do endereço)
+    [['lat',{'data-field':'lat'}],['long',{'data-field':'long'}]
+    ].forEach(([k,a])=>{ const td=document.createElement('td'); td.className='hide-col'; const i=mkInput(a); i.value=v[k]??''; td.appendChild(i); tr.appendChild(td); });
+
+    if(!ENG){ const td=document.createElement('td'); td.appendChild(mkDel()); tr.appendChild(td); }
+    to.appendChild(tr); wireCN(tr); wireGeoSelectors(tr); wireGeocode(tr); upd(); setDirty();
+  }
+
+  (Array.isArray(vi)?vi:[]).forEach(addVivo);
+  (Array.isArray(oi)?oi:[]).forEach(addOp);
+
+  // Mínimo obrigatório: as tabelas sempre iniciam com 1 interconexão
+  if(tv && !tv.children.length) addVivo({});
+  if(to && !to.children.length) addOp({});
+  dirty=false;   // linhas iniciais não contam como alteração do usuário
+
+  document.getElementById('addRowVivo')?.addEventListener('click',()=>addVivo({}));
+  document.getElementById('addRowOperadora')?.addEventListener('click',()=>{ addOp({}); syncFaixaIp(); });
+  document.getElementById('ip_reservado')?.addEventListener('change',syncFaixaIp);
+  upd(); syncFaixaIp();
+
+  // Re-consultar linhas com CN preenchido após load
+  setTimeout(()=>{
+    const rn1Val=(document.getElementById('rn1')?.value||'').trim();
+    if(!rn1Val) return;
+    SIP.resetCache();
+    document.querySelectorAll('#tableVivo tbody tr').forEach((tr,ri)=>{
+      const cnI=tr.querySelector('[data-field="cn"]');
+      const cn=(cnI?.value||'').replace(/\D/g,'');
+      if(cn.length===2) SIP.query(cn, ri);
+    });
+  }, 500);
+})();
+
+/* ── Importação do PTI devolvido pela operadora ──
+   Um único botão: abre a escolha do arquivo e, escolhido, já importa.
+   O envio é um POST normal do #importForm (fora do formulário principal),
+   então a mensagem de resultado aparece após o recarregamento.
+   (A versão anterior enviava por fetch e a mensagem se perdia.) */
+(function(){
+  if(!ENG) return;
+  const input = document.getElementById('arquivoPti');
+  const btn   = document.getElementById('btnImportarPti');
+  const fImp  = document.getElementById('importForm');
+  if(!input || !btn || !fImp) return;
+
+  btn.addEventListener('click', ()=>{
+    if(dirty && !confirm('Há alterações não salvas nesta página e elas serão perdidas ao importar.\n\nClique em Cancelar e use "Salvar validação" antes, ou OK para importar mesmo assim.')) return;
+    input.value='';            // permite escolher o mesmo arquivo de novo
+    input.click();
+  });
+  input.addEventListener('change', ()=>{
+    const f=input.files[0]; if(!f) return;
+    if(!/\.(xlsx|xlsm)$/i.test(f.name)){
+      alert('Formato inválido. Escolha o arquivo .xlsx do PTI devolvido pela operadora.');
+      input.value=''; return;
+    }
+    btn.disabled=true;
+    btn.innerHTML='<span class="spinner-border spinner-border-sm me-1"></span> Importando…';
+    submitting=true;           // não avisar sobre saída da página
+    fImp.submit();
+  });
+})();
+
+/* ── Engenharia: apenas as observações (os parâmetros da Seção 9 são
+   respondidos pela operadora e importados do PTI devolvido) ── */
+(function(){
+  if(!ENG) return;
+  let s={};
+  try{ s=JSON.parse(document.getElementById('formTecnico').getAttribute('data-engenharia-json')||'{}'); }catch(_){}
+  if(typeof s.notes==='string'){ const n=document.getElementById('eng_notes'); if(n) n.value=s.notes; }
+})();
+
+/* ── Qual? toggle — desativado enquanto o campo Atendimento estiver oculto.
+   Para reativar, restaure este bloco junto com o campo na Seção 1. ──
+(function(){
+  const at=document.getElementById('atendimento'), qg=document.getElementById('qualGroup');
+  const qi=document.getElementById('qual');
+  const toggle=()=>{
+    const show=(at?.value||'').startsWith('REG');
+    if(qg) qg.classList.toggle('d-none',!show);
+    if(qi){ if(show) qi.setAttribute('required',''); else { qi.removeAttribute('required'); } }
+  };
+  at?.addEventListener('change',toggle); toggle();
+})();
+*/
+
+/* ── Escopo chips + Premissas dinâmicas ── */
+const syncPremissas=(flags)=>{
+  const rows=document.querySelectorAll('#premissasTable tbody tr[data-flag]');
+  let visible=0;
+  rows.forEach(tr=>{
+    const show=flags.includes(tr.getAttribute('data-flag'));
+    tr.style.display=show?'':'none';
+    if(show) visible++;
+  });
+  const table=document.getElementById('premissasTable');
+  const empty=document.getElementById('premissasEmpty');
+  if(table) table.style.display=visible?'':'none';
+  if(empty) empty.style.display=visible?'none':'block';
+
+  // Dimensionamento (Engenharia): mesmas linhas dos tráfegos escolhidos
+  const dim=document.getElementById('dimTable');
+  if(dim){
+    let dimVis=0;
+    dim.querySelectorAll('tbody tr[data-flag]').forEach(tr=>{
+      const show=flags.includes(tr.getAttribute('data-flag'));
+      tr.style.display=show?'':'none';
+      if(show) dimVis++;
+    });
+    dim.style.display=dimVis?'':'none';
+    const de=document.getElementById('dimEmpty');
+    if(de) de.style.display=dimVis?'none':'block';
+  }
+};
+
+/* ── Dimensionamento por tráfego: hidratação e serialização ── */
+function serializeDimensionamento(){
+  const out={};
+  document.querySelectorAll('#dimTable tbody tr[data-flag]').forEach(tr=>{
+    const flag=tr.getAttribute('data-flag');
+    const vals={};
+    let preenchido=false;
+    tr.querySelectorAll('.dim-input').forEach(i=>{
+      const v=(i.value||'').trim();
+      vals[i.getAttribute('data-campo')]=v;
+      if(v) preenchido=true;
+    });
+    if(preenchido) out[flag]=vals;
+  });
+  return out;
+}
+(function(){
+  const dim=document.getElementById('dimTable'); if(!dim) return;
+  let saved={};
+  try{ saved=JSON.parse(document.getElementById('trafego_metricas_json')?.value||'{}'); }catch(_){}
+  dim.querySelectorAll('tbody tr[data-flag]').forEach(tr=>{
+    const dados=saved[tr.getAttribute('data-flag')]||{};
+    tr.querySelectorAll('.dim-input').forEach(i=>{
+      i.value=dados[i.getAttribute('data-campo')]||'';
+      i.addEventListener('input',setDirty);
+    });
+  });
+})();
+(function(){
+  // Atacado: flags no hidden editável. Engenharia: flags do formulário salvo
+  // (somente leitura — apenas exibe as etiquetas).
+  const h=document.getElementById('escopo_flags_json');
+  let flags=[];
+  try{
+    flags=JSON.parse(ENG
+      ? (document.getElementById('formTecnico').getAttribute('data-escopo-flags')||'[]')
+      : (h?.value||'[]'));
+  }catch(_){}
+  if(!Array.isArray(flags)) flags=[];
+
+  const ms       = document.getElementById('trafegoMulti');
+  const control  = document.getElementById('trafegoControl');
+  const counter  = document.getElementById('trafegoCount');
+  const placeholder = document.getElementById('trafegoPlaceholder');
+  const boxes    = [...document.querySelectorAll('.esc-flag')];
+
+  const selected = () => boxes.filter(b=>b.checked).map(b=>b.getAttribute('data-flag'));
+
+  /* Tags dos tipos escolhidos dentro do próprio campo */
+  function renderTags(){
+    control.querySelectorAll('.ms-tag').forEach(t=>t.remove());
+    const cur = selected();
+    placeholder.style.display = cur.length ? 'none' : '';
+    const caret = control.querySelector('.ms-caret');
+    cur.forEach(flag=>{
+      const tag=document.createElement('span');
+      tag.className='ms-tag';
+      const label=document.createElement('span'); label.textContent=flag;
+      const del=document.createElement('button');
+      del.type='button'; del.innerHTML='&times;'; del.title='Remover';
+      del.addEventListener('click',e=>{
+        e.stopPropagation();
+        const box=boxes.find(b=>b.getAttribute('data-flag')===flag);
+        if(box){ box.checked=false; box.dispatchEvent(new Event('change',{bubbles:true})); }
+      });
+      tag.append(label, del);
+      control.insertBefore(tag, caret);
+    });
+    if(counter) counter.textContent=cur.length;
+  }
+
+  function apply(){
+    const cur = selected();
+    h.value = JSON.stringify(cur);
+    renderTags();
+    syncPremissas(cur);
+    setDirty();
+  }
+
+  boxes.forEach(b=>{
+    if(flags.includes(b.getAttribute('data-flag'))) b.checked=true;
+    if(!ENG) b.addEventListener('change', apply);
+  });
+
+  // Engenharia: só exibe as etiquetas do que o Atacado escolheu.
+  if(ENG){ renderTags(); syncPremissas(flags); return; }
+
+  /* Abrir / fechar — o painel é fixo, então precisa ser posicionado
+     manualmente junto ao campo (abre para cima se faltar espaço). */
+  const panel = ms.querySelector('.ms-panel');
+  const optsBox = panel.querySelector('.ms-options');
+  function place(){
+    const r   = control.getBoundingClientRect();
+    const GAP = 6, M = 12, vh = window.innerHeight;
+    const w   = Math.max(r.width, 340);
+    panel.style.width = w + 'px';
+    panel.style.left  = Math.max(M, Math.min(r.left, window.innerWidth - w - M)) + 'px';
+
+    // Limites do campo já presos à janela (ele pode estar parcialmente
+    // fora da área visível quando a página está rolada).
+    const cTop    = Math.min(Math.max(r.top, M), vh - M);
+    const cBottom = Math.min(Math.max(r.bottom, M), vh - M);
+
+    // Abre para o lado com mais espaço e limita a altura ao que cabe.
+    const below = vh - cBottom - GAP - M;
+    const above = cTop - GAP - M;
+    const useAbove = above > below;
+    const footH = panel.querySelector('.ms-foot')?.offsetHeight || 0;
+    const space = Math.max(160, useAbove ? above : below);
+    optsBox.style.maxHeight = Math.max(120, Math.min(space - footH, 460)) + 'px';
+
+    // Trava final: o painel nunca ultrapassa as bordas da janela.
+    const h = panel.offsetHeight;
+    const top = useAbove ? (cTop - GAP - h) : (cBottom + GAP);
+    panel.style.top = Math.max(M, Math.min(top, vh - h - M)) + 'px';
+  }
+  const open  = ()=>{ ms.classList.add('open'); control.setAttribute('aria-expanded','true'); place(); };
+  const close = ()=>{ ms.classList.remove('open'); control.setAttribute('aria-expanded','false'); };
+  window.addEventListener('scroll', ()=>{ if(ms.classList.contains('open')) place(); }, true);
+  window.addEventListener('resize', ()=>{ if(ms.classList.contains('open')) place(); });
+  control.addEventListener('click', ()=> ms.classList.contains('open') ? close() : open());
+  control.addEventListener('keydown', e=>{
+    if(e.key==='Enter'||e.key===' '){ e.preventDefault(); ms.classList.contains('open')?close():open(); }
+  });
+  document.addEventListener('click', e=>{ if(!ms.contains(e.target)) close(); });
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape') close(); });
+
+  document.getElementById('trafegoClear')?.addEventListener('click', ()=>{
+    boxes.forEach(b=>{ b.checked=false; });
+    apply();
+  });
+
+  renderTags();
+  syncPremissas(flags);
+})();
+
+/* ── Pendências: lista o que falta e leva até o campo ──
+   Antes, ao finalizar com campo vazio, a página só posicionava o cursor
+   no primeiro campo, sem mensagem — parecia que o botão não funcionava. */
+const VAL=(function(){
+  const box=document.getElementById('valBox');
+  const list=document.getElementById('valList');
+  const title=document.getElementById('valTitle');
+  let coletar=null, titulo='';
+
+  // Nome do campo: <label for>, ou "coluna — linha N" nas tabelas
+  function rotulo(el){
+    if(el.id){
+      const l=document.querySelector(`label[for="${el.id}"]`);
+      if(l) return l.textContent.replace(/\*/g,'').replace(/\s+/g,' ').trim();
+    }
+    const td=el.closest('td');
+    if(td){
+      const tr=td.parentElement;
+      const th=td.closest('table')?.querySelectorAll('thead th')[[...tr.children].indexOf(td)];
+      const linha=[...tr.parentElement.children].indexOf(tr)+1;
+      return `${(th?.textContent||'Campo').trim()} — linha ${linha}`;
+    }
+    return el.getAttribute('aria-label')||el.name||'Campo';
+  }
+  function secao(el){
+    const t=el.closest('.sec')?.querySelector('.sec-title'); if(!t) return '';
+    const n=t.querySelector('.sec-num')?.textContent||'';
+    return `${n} · ${t.textContent.replace(n,'').trim()}`;
+  }
+  const item=(el, label)=>({el, label:label||rotulo(el), sec:secao(el)});
+
+  function marcar(itens){
+    document.querySelectorAll('.is-missing').forEach(e=>e.classList.remove('is-missing'));
+    itens.forEach(it=>it.el.classList.add('is-missing'));
+  }
+  function ir(it){
+    it.el.scrollIntoView({behavior:'smooth', block:'center'});
+    setTimeout(()=>{ try{ it.el.focus({preventScroll:true}); }catch(_){} }, 300);
+  }
+  function render(){
+    const itens=coletar ? coletar() : [];
+    marcar(itens);
+    if(!itens.length){ fechar(); return itens; }
+    title.textContent=`${titulo} (${itens.length})`;
+    list.innerHTML='';
+    let ultima=null;
+    itens.forEach(it=>{
+      if(it.sec!==ultima){
+        const h=document.createElement('li'); h.className='val-sec'; h.textContent=it.sec;
+        list.appendChild(h); ultima=it.sec;
+      }
+      const li=document.createElement('li');
+      const b=document.createElement('button'); b.type='button'; b.textContent=it.label;
+      b.addEventListener('click',()=>ir(it));
+      li.appendChild(b); list.appendChild(li);
+    });
+    box.hidden=false;
+    return itens;
+  }
+  /* Mostra as pendências de `fn`; retorna true se não houver nenhuma */
+  function mostrar(fn, t){
+    coletar=fn; titulo=t;
+    const itens=render();
+    if(itens.length) ir(itens[0]);
+    return itens.length===0;
+  }
+  function fechar(){
+    box.hidden=true; coletar=null;
+    document.querySelectorAll('.is-missing').forEach(e=>e.classList.remove('is-missing'));
+  }
+  // A lista se atualiza enquanto o usuário corrige os campos
+  ['input','change'].forEach(ev=>document.addEventListener(ev,()=>{ if(coletar) render(); }, true));
+  document.getElementById('valClose')?.addEventListener('click', fechar);
+  return {mostrar, fechar, item};
+})();
+
+const porPosicao=(a,b)=>(a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1;
+
+/* Atacado — tudo o que falta para finalizar */
+function pendenciasFinalizar(){
+  const itens=[];
+  form.querySelectorAll('input,select,textarea').forEach(el=>{
+    if(el.type==='hidden' || el.disabled || !el.willValidate || el.checkValidity()) return;
+    // Campo oculto não pode ser corrigido pelo usuário: não bloqueia
+    if(!el.offsetParent){ console.warn('Campo obrigatório oculto ignorado:', el); return; }
+    const it=VAL.item(el);
+    if(el.validity.customError) it.label+=' — escolha uma opção da lista';
+    else if(el.validity.patternMismatch || el.validity.tooShort) it.label+=' — formato inválido';
+    itens.push(it);
+  });
+  if(!document.querySelectorAll('.esc-flag:checked').length){
+    const c=document.getElementById('trafegoControl');
+    if(c) itens.push(VAL.item(c, 'Tipos de tráfego — marque ao menos um'));
+  }
+  return itens.sort(porPosicao);
+}
+/* RN1 / Nome fora do Anexo 5 — bloqueia até o rascunho */
+function pendenciasAnexo5(){
+  return ['nome_operadora','rn1'].map(id=>document.getElementById(id))
+    .filter(el=>el && el.value && el.validationMessage)
+    .map(el=>{ const it=VAL.item(el); it.label+=' — escolha uma opção da lista'; return it; });
+}
+/* Engenharia — Mask de cada linha de Dados Operadora */
+function pendenciasEngenharia(){
+  return [...document.querySelectorAll('.eng-mask')]
+    .filter(m=>!(m.value||'').trim()).map(m=>VAL.item(m));
+}
+
+/* ── Submit ── */
+const form=document.getElementById('formTecnico');
+let acao='rascunho';
+function setStatus(v){ const s=document.getElementById('status'); if(s) s.value=v; }
+function saveDraft(){
+  acao='rascunho'; setStatus('rascunho');
+  form.requestSubmit();
+}
+function finalizeSubmit(){
+  // Primeiro confere o que falta; só depois pede a confirmação
+  if(!VAL.mostrar(()=>[...pendenciasAnexo5(), ...pendenciasFinalizar()]
+                    .filter((it,i,arr)=>arr.findIndex(o=>o.el===it.el)===i),
+                  'Para finalizar, preencha')) return;
+  if(!confirm('Finalizar e enviar para a Engenharia?')) return;
+  acao='finalizar'; setStatus('enviado');
+  form.requestSubmit();
+}
+
+window.addEventListener('beforeunload',e=>{ if(dirty&&!submitting){ e.preventDefault(); e.returnValue=''; } });
+
+/* Limpar: esvazia todos os campos editáveis (antes, num PTI já salvo,
+   voltava aos valores salvos e as marcações ficavam com visual errado) */
+document.getElementById('resetForm')?.addEventListener('click',()=>{
+  if(!confirm('Limpar todos os campos do formulário?')) return;
+  VAL.fechar();
+  form.querySelectorAll('input:not([type=hidden]):not([type=checkbox]):not([type=file]):not([readonly]), textarea').forEach(i=>{
+    i.value=''; i.setCustomValidity?.(''); i.classList.remove('invalid');
+  });
+  form.querySelectorAll('input[type=checkbox]:not(.esc-flag)').forEach(c=>{
+    if(c.checked){ c.checked=false; c.dispatchEvent(new Event('change',{bubbles:true})); }
+  });
+  document.getElementById('trafegoClear')?.click();          // tipos de tráfego
+  const rd=document.getElementById('redes'); if(rd){ rd.value=''; setRedesTxt(''); }
+  // Tabelas: voltam para a linha mínima obrigatória, vazia
+  const tv=document.querySelector('#tableVivo tbody');
+  const to=document.querySelector('#tableOperadora tbody');
+  if(tv){ tv.innerHTML=''; document.getElementById('addRowVivo')?.click(); }
+  if(to){ to.innerHTML=''; document.getElementById('addRowOperadora')?.click(); }
+  upd(); setDirty(); window.scrollTo({top:0,behavior:'smooth'});
+});
+
+document.querySelectorAll('#formTecnico input:not([type="hidden"]),#formTecnico select,#formTecnico textarea').forEach(el=>{
+  el.addEventListener('input',setDirty); el.addEventListener('change',setDirty);
+});
+
+form.addEventListener('submit',e=>{
+  const vh=document.getElementById('dados_vivo_json');
+  const oh=document.getElementById('dados_operadora_json');
+  if(ENG&&document.getElementById('tableVivo'))       vh.value=JSON.stringify(serVivo());
+  if(document.getElementById('tableOperadora'))       oh.value=JSON.stringify(serOp());
+
+  if(ENG){
+    // Seção de Parâmetros é respondida pela operadora (importada do PTI
+    // devolvido); a Engenharia só registra observações.
+    const d={};
+    const n=document.getElementById('eng_notes'); if(n&&n.value.trim()) d.notes=n.value.trim();
+    document.getElementById('engenharia_params_json').value=JSON.stringify(d);
+    // Banda / Canais / CAPS por tráfego (Premissas)
+    const dm=document.getElementById('trafego_metricas_json');
+    if(dm) dm.value=JSON.stringify(serializeDimensionamento());
+    // Masks preenchidas
+    if(!VAL.mostrar(pendenciasEngenharia, 'Para salvar, preencha')){
+      e.preventDefault(); e.stopPropagation();
+      return;
+    }
+    submitting=true;
+    const s=document.getElementById('spin'); if(s) s.classList.remove('d-none');
+    return;
+  }
+
+  const isDraft=(document.getElementById('status')?.value||'rascunho')==='rascunho';
+
+  // Valores restritos (RN1/Nome) nunca podem ser inválidos — nem em rascunho
+  if(!VAL.mostrar(pendenciasAnexo5, 'Corrija antes de salvar')){
+    e.preventDefault(); e.stopPropagation();
+    setStatus('rascunho');
+    return;
+  }
+
+  if(!isDraft){
+    // Finalizar: todos os campos obrigatórios (já conferido em
+    // finalizeSubmit; repetido aqui caso o envio venha de outro caminho)
+    if(!VAL.mostrar(pendenciasFinalizar, 'Para finalizar, preencha')){
+      e.preventDefault(); e.stopPropagation();
+      setStatus('rascunho');
+      return;
+    }
+    if(!document.querySelectorAll('#tableOperadora tbody tr').length){
+      e.preventDefault(); e.stopPropagation();
+      setStatus('rascunho');
+      alert('Adicione ao menos uma linha em Dados Operadora.');
+      return;
+    }
+  }
+
+  VAL.fechar();
+  submitting=true;
+  const s=document.getElementById(acao==='finalizar' ? 'spinFinish' : 'spinSave');
+  if(s) s.classList.remove('d-none');
+});
+
+/* ── Hotkeys ── */
+document.addEventListener('keydown',e=>{
+  if(['INPUT','TEXTAREA','SELECT'].includes(e.target?.tagName)){
+    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){
+      e.preventDefault();
+      if(ENG) document.getElementById('btnSaveEng')?.click();
+      else{ setStatus('rascunho'); document.getElementById('btnSave')?.click(); }
+    }
+    return;
+  }
+  if(e.key==='g'||e.key==='G') window.scrollTo({top:0,behavior:'smooth'});
+});
+
+/* ── Destaque do campo Mask vazio no modo Engenharia ── */
+if(ENG){
+  const markMask = () => {
+    document.querySelectorAll('.eng-mask').forEach(el => {
+      el.classList.toggle('mask-empty', !(el.value || '').trim());
+    });
+  };
+  markMask();
+  setTimeout(markMask, 800);
+  document.addEventListener('input', e => {
+    if(e.target.classList.contains('eng-mask')) markMask();
+  });
+}
+
+/* ── Inicialização Anexo 5 (somente Atacado) ── */
+if(!ENG){
+  loadOperadoras().then(initCombos);
+}
+</script>
+{% endblock %}

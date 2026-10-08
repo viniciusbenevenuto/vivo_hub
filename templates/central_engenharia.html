@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Central Engenharia — PTI AUTOMATIZADO{% endblock %}
+{% block extra_head %}
+<style>
+  .action-card {
+    display:block; text-decoration:none; color:inherit;
+    padding:1.5rem; border-radius:16px; border:1px solid var(--bdr);
+    background:var(--surf); box-shadow:var(--sh); transition:box-shadow .2s, transform .15s, border-color .2s;
+  }
+  .action-card:hover { box-shadow:var(--sh-lg); transform:translateY(-3px); border-color:rgba(107,9,166,.25); text-decoration:none; color:inherit; }
+  .action-card-icon {
+    width:44px; height:44px; border-radius:12px;
+    background:var(--p-lt); color:var(--p);
+    display:flex; align-items:center; justify-content:center;
+    font-size:1.15rem; margin-bottom:1rem;
+  }
+  .action-card-icon.red { background:#fdf0f0; color:#991b1b; }
+  .action-card h3 { font-size:.95rem; font-weight:700; margin:0 0 .35rem; }
+  .action-card p  { font-size:.8rem; color:var(--sub); margin:0; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page">
+
+  <div class="page-hero">
+    <h1 class="hero-title">
+      Bem-vindo ao <span class="shimmer">hub de engenharia</span>
+    </h1>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem">
+
+    <a class="action-card" href="{{ url_for('engenharia.form_list') }}">
+      <h3>Análise de Pré-PTIs</h3>
+    </a>
+
+    <a class="action-card" href="{{ url_for('engenharia.form_list') }}?status=aprovado">
+      <h3>Pré-PTIs Aprovados</h3>
+    </a>
+
+    <a class="action-card" href="{{ url_for('engenharia.form_list') }}?status=reprovado">
+      <h3>Pré-PTIs Pendentes de Ajuste</h3>
+    </a>
+
+    <div class="action-card" style="cursor:default">
+      <h3>Consulta de Pré-PTIs</h3>
+      <form method="get" action="{{ url_for('engenharia.form_list') }}" style="margin-top:.5rem;display:flex;gap:.4rem">
+        <input class="v-input v-input-sm" type="text" name="q"
+               placeholder="Nome da operadora..." style="flex:1;min-width:0">
+        <button type="submit" class="btn-p btn-sm"><i class="bi bi-arrow-right"></i></button>
+      </form>
+    </div>
+
+  </div>
+
+</div>
+{% endblock %}
+{% block extra_scripts %}{% endblock %}
